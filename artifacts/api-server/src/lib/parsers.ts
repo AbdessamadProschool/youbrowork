@@ -114,13 +114,57 @@ export function parseEtatXlsx(buffer: Buffer): EtatRow[] {
 //   total_jours    = COUNT(all cells == 1)
 //   taux_theorique = jours_realises / total_jours
 // ─────────────────────────────────────────────────────────────────────────────
+/** Try to parse a cell value as a JS Date using multiple strategies. */
+function cellToDate(cell: XLSX.CellObject | undefined): Date | null {
+  if (!cell) return null;
+
+  // Strategy 1: already converted to Date by cellDates:true
+  if (cell.t === "d" && cell.v instanceof Date) {
+    const d = cell.v;
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Strategy 2: numeric Excel serial in realistic date range (year 2000–2099)
+  if (cell.t === "n" && typeof cell.v === "number") {
+    const serial = cell.v;
+    if (serial > 36526 && serial < 73050) {
+      // 2000-01-01 to 2099-12-31
+      const utcMs = (serial - 25569) * 86400 * 1000;
+      const d = new Date(utcMs);
+      return isNaN(d.getTime()) ? null : d;
+    }
+  }
+
+  // Strategy 3: text date string (dd/mm/yyyy, d/m/yyyy, yyyy-mm-dd, etc.)
+  if (cell.t === "s" && typeof cell.v === "string") {
+    const s = cell.v.trim();
+    // dd/mm/yyyy or d/m/yy
+    const dmy = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+    if (dmy) {
+      const day = parseInt(dmy[1]);
+      const month = parseInt(dmy[2]) - 1;
+      let year = parseInt(dmy[3]);
+      if (year < 100) year += 2000;
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
+    }
+    // yyyy-mm-dd
+    const ymd = s.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/);
+    if (ymd) {
+      const d = new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]));
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2000) return d;
+    }
+  }
+
+  return null;
+}
+
 export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  // Parse twice: once with cellDates for date detection, once raw for values
+  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, cellNF: true });
 
   const sheetName =
-    wb.SheetNames.find(
-      (n) => /25.?26|26|Cal/i.test(n)
-    ) ?? wb.SheetNames[0];
+    wb.SheetNames.find((n) => /25.?26|26|Cal/i.test(n)) ?? wb.SheetNames[0];
 
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`Sheet not found. Available: ${wb.SheetNames.join(", ")}`);
@@ -131,34 +175,18 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
   if (!wsRef) return [];
   const range = XLSX.utils.decode_range(wsRef);
 
-  // ── Step 1: Find the date header row
-  // Look for the first row (rows 0-15) that has ≥5 date-type cells (type 'd' or numeric serial > 40000)
+  // ── Step 1: Find the date header row ─────────────────────────────────────
+  // Scan rows 0-30 for a row with ≥5 date-type cells across columns 1+
+  // A date cell = type 'd', OR numeric serial in 2000-2099 range, OR text date string
   let dateRowIdx = -1;
   const colDates = new Map<number, Date>(); // column index → JS Date
 
-  for (let R = 0; R <= Math.min(range.e.r, 15); R++) {
+  for (let R = 0; R <= Math.min(range.e.r, 30); R++) {
     const tempDates = new Map<number, Date>();
     for (let C = 1; C <= range.e.c; C++) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      const cell = ws[addr];
-      if (!cell) continue;
-
-      let d: Date | null = null;
-      if (cell.t === "d" && cell.v instanceof Date) {
-        d = cell.v;
-      } else if (
-        cell.t === "n" &&
-        typeof cell.v === "number" &&
-        cell.v > 40000 &&
-        cell.v < 60000
-      ) {
-        // Excel serial date: days since 1900-01-01 (with 1900 leap-year bug)
-        const utcMs = (cell.v - 25569) * 86400 * 1000;
-        d = new Date(utcMs);
-      }
-      if (d && !isNaN(d.getTime())) {
-        tempDates.set(C, d);
-      }
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+      const d = cellToDate(cell);
+      if (d) tempDates.set(C, d);
     }
     if (tempDates.size >= 5) {
       dateRowIdx = R;
@@ -168,27 +196,34 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
   }
 
   if (dateRowIdx < 0 || colDates.size === 0) {
-    logger.warn(
-      { sheetName },
-      "No date row found in calendar — cannot compute taux théorique from cell counts"
-    );
+    logger.warn({ sheetName }, "No date row found in calendar — dumping row 0-5 cell types for debug");
+    for (let R = 0; R <= Math.min(range.e.r, 5); R++) {
+      const sample: string[] = [];
+      for (let C = 0; C <= Math.min(range.e.c, 10); C++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+        sample.push(cell ? `${cell.t}:${JSON.stringify(cell.v)}` : "·");
+      }
+      logger.warn({ R, sample }, "Row sample");
+    }
     return [];
   }
 
   const allDateValues = [...colDates.values()];
-  const lastCalDate = allDateValues.reduce((a, b) => (a > b ? a : b));
+  const lastCalDate = new Date(Math.max(...allDateValues.map((d) => d.getTime())));
+  const firstCalDate = new Date(Math.min(...allDateValues.map((d) => d.getTime())));
 
   // date_ref = min(today, last calendar date)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   lastCalDate.setHours(0, 0, 0, 0);
+  firstCalDate.setHours(0, 0, 0, 0);
   const dateRef = today <= lastCalDate ? today : lastCalDate;
 
   logger.info(
     {
       dateRowIdx,
       dateColumnCount: colDates.size,
-      firstDate: allDateValues[0].toISOString().split("T")[0],
+      firstDate: firstCalDate.toISOString().split("T")[0],
       lastDate: lastCalDate.toISOString().split("T")[0],
       dateRef: dateRef.toISOString().split("T")[0],
     },
@@ -201,23 +236,40 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
       ? `${now.getFullYear()}/${now.getFullYear() + 1}`
       : `${now.getFullYear() - 1}/${now.getFullYear()}`;
 
+  // ── Step 2: Locate summary columns (Taux d'AP objectif) as fallback ────────
+  // The summary columns appear AFTER the day-data columns; scan the last row before data for headers
+  const summaryColsMap = new Map<string, number>(); // header text → col index
+  const maxDataCol = Math.max(...colDates.keys());
+  for (let R = 0; R <= Math.min(dateRowIdx + 5, range.e.r); R++) {
+    for (let C = maxDataCol + 1; C <= range.e.c; C++) {
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
+      if (!cell || cell.t !== "s") continue;
+      const txt = String(cell.v ?? "").toLowerCase().trim();
+      if (txt.includes("taux") && txt.includes("ap")) summaryColsMap.set("tauxAP", C);
+      if (txt.includes("jour") && txt.includes("ouvr")) summaryColsMap.set("joursOuv", C);
+    }
+  }
+  logger.info({ summaryColsMap: Object.fromEntries(summaryColsMap) }, "Summary columns located");
+
+  // ── Step 3: For each CDJ/CDS row, count formation days (cells == 1) ───────
+  // Widened regex: matches 1A-CDJ, 2A-CDJ, 3A-CDJ, CDS 1A+2A, CDS-3A, etc.
+  const CDJ_LABEL_RE = /^([123]A.{0,10}CDJ|CDS)/i;
+
   const results: CalendrierResult[] = [];
 
-  // ── Step 2: For each CDJ row, count formation days (cells == 1)
   for (let R = 0; R <= range.e.r; R++) {
     if (R === dateRowIdx) continue;
 
     const cellA = ws[XLSX.utils.encode_cell({ r: R, c: 0 })];
     const label = String(cellA?.v ?? "").trim();
-    if (!/^[12]A.?CDJ/i.test(label)) continue;
+    if (!CDJ_LABEL_RE.test(label)) continue;
 
     let totalJours = 0;
     let joursRealises = 0;
     const jourDetails: JourDetail[] = [];
 
     for (const [C, cellDate] of colDates) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: C });
-      const cell = ws[addr];
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
       const val = cell?.v;
 
       // A formation day is marked with value 1 (numeric) or "1" (string)
@@ -236,8 +288,18 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
       });
     }
 
-    const tauxTheorique =
-      totalJours > 0 ? Math.min(joursRealises / totalJours, 1) : 0;
+    // Fallback: if cell-counting gives 0 total, read summary column directly
+    let tauxTheorique = 0;
+    if (totalJours > 0) {
+      tauxTheorique = Math.min(joursRealises / totalJours, 1);
+    } else if (summaryColsMap.has("tauxAP")) {
+      const tauxCell = ws[XLSX.utils.encode_cell({ r: R, c: summaryColsMap.get("tauxAP")! })];
+      if (tauxCell && tauxCell.t === "n" && typeof tauxCell.v === "number") {
+        // stored as decimal fraction (0.68 = 68%)
+        tauxTheorique = Math.min(Math.abs(tauxCell.v), 1);
+        logger.info({ label, tauxFromSummary: tauxCell.v }, "Using summary column fallback for taux");
+      }
+    }
 
     logger.info(
       {
