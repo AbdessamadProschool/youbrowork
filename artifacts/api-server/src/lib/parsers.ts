@@ -164,11 +164,29 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
 
   logger.info({ tauxApColumns }, "All Taux AP objectif column indices found");
 
-  // Use the RIGHTMOST column (most recent year in multi-year calendar)
-  const tauxCol =
-    tauxApColumns.length > 0
-      ? Math.max(...tauxApColumns)
-      : -1;
+  // ── Step 1b: Log values at each candidate column for the first CDJ row (idx 3+)
+  // We choose the column whose CDJ-row values fall in a meaningful range [5%, 100%].
+  // Formula-based columns are cached at file-save time and may be near 0%.
+  // Reference columns (e.g., last completed year) have stable values in [30%, 100%].
+  let tauxCol = -1;
+  for (const colIdx of tauxApColumns) {
+    let validCount = 0;
+    for (let r = 3; r < Math.min(rawRows.length, 20); r++) {
+      const val = rawRows[r][colIdx];
+      if (typeof val === "number" && val >= 0.05 && val <= 1.0) validCount++;
+    }
+    logger.info({ colIdx, validCount }, "Taux AP column candidate check");
+    if (validCount >= 2) {
+      tauxCol = colIdx;
+      break; // take the first (leftmost) column with ≥2 valid values
+    }
+  }
+  // Fallback: try all columns in order, smallest index first
+  if (tauxCol < 0 && tauxApColumns.length > 0) {
+    tauxCol = Math.min(...tauxApColumns);
+  }
+
+  logger.info({ tauxCol }, "Selected Taux AP objectif column");
 
   if (tauxCol < 0) {
     logger.warn("No 'Taux d\\'AP objectif' column found in calendar");
