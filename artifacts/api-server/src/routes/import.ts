@@ -1,6 +1,9 @@
 import { Router } from "express";
 import multer from "multer";
 import { randomUUID } from "crypto";
+// Use the internal lib to bypass the test-file read that runs at module init
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse: (buf: Buffer) => Promise<{ text: string }> = require("pdf-parse/lib/pdf-parse.js");
 import { db } from "@workspace/db";
 import {
   groupesTable,
@@ -200,7 +203,6 @@ router.post(
         let pdfText = "";
 
         try {
-          const pdfParse = (await import("pdf-parse")).default;
           const data = await pdfParse(req.file.buffer);
           pdfText = data.text;
         } catch (e) {

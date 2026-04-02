@@ -30,7 +30,7 @@ export function computeAlertesForStagiaire(
       alertes.push({
         id: randomUUID(),
         niveau: "critique",
-        message: `${nomComplet} est absent(e) à l'EFM du module ${note.moduleCode} — ${note.moduleIntitule}`,
+        message: `Absent(e) à l'EFM — ${note.moduleIntitule}`,
         entity: "stagiaire",
         entityId: cef,
         entityLabel: nomComplet,
@@ -42,7 +42,7 @@ export function computeAlertesForStagiaire(
       alertes.push({
         id: randomUUID(),
         niveau: "critique",
-        message: `Moyenne ${note.moyenneOff.toFixed(2)}/20 inférieure à 10 en ${note.moduleCode} — ${note.moduleIntitule}`,
+        message: `Moyenne ${note.moyenneOff.toFixed(2)}/20 < 10 — ${note.moduleIntitule}`,
         entity: "stagiaire",
         entityId: cef,
         entityLabel: nomComplet,
@@ -54,7 +54,7 @@ export function computeAlertesForStagiaire(
       alertes.push({
         id: randomUUID(),
         niveau: "warning",
-        message: `CC = 0.00 en ${note.moduleCode} — ${note.moduleIntitule} (absence ou non rendu)`,
+        message: `CC = 0.00 (absence ou non rendu) — ${note.moduleIntitule}`,
         entity: "stagiaire",
         entityId: cef,
         entityLabel: nomComplet,
@@ -90,7 +90,7 @@ export function computeAlertesForGroupe(
       alertes.push({
         id: randomUUID(),
         niveau: "critique",
-        message: `Retard pédagogique de ${(Math.abs(mod.ecart) * 100).toFixed(1)}% en ${mod.moduleCode} — ${mod.moduleIntitule}`,
+        message: `Retard pédagogique de ${(Math.abs(mod.ecart) * 100).toFixed(1)}% — ${mod.moduleIntitule}`,
         entity: "groupe",
         entityId: groupeId,
         entityLabel: groupeCode,
@@ -102,7 +102,7 @@ export function computeAlertesForGroupe(
       alertes.push({
         id: randomUUID(),
         niveau: "anomalie",
-        message: `Taux réel anormal: ${(mod.tauxReel * 100).toFixed(1)}% en ${mod.moduleCode} (dépassement > 107%)`,
+        message: `Taux réel ${(mod.tauxReel * 100).toFixed(1)}% anormal (> 107%) — ${mod.moduleIntitule}`,
         entity: "groupe",
         entityId: groupeId,
         entityLabel: groupeCode,
@@ -123,10 +123,11 @@ export function computeAlertesForGroupe(
     for (const [modCode, count] of Object.entries(absentsPerModule)) {
       const pct = count / totalStagiaires;
       if (pct > 0.25) {
+        const modIntitule = modules.find((m) => m.moduleCode === modCode)?.moduleIntitule ?? modCode;
         alertes.push({
           id: randomUUID(),
           niveau: "warning",
-          message: `${count} stagiaires absents (${(pct * 100).toFixed(0)}%) à l'EFM du module ${modCode}`,
+          message: `${count} stagiaires absents (${(pct * 100).toFixed(0)}%) à l'EFM — ${modIntitule}`,
           entity: "groupe",
           entityId: groupeId,
           entityLabel: groupeCode,

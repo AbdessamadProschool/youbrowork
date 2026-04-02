@@ -20,7 +20,7 @@ router.get("/dashboard", async (req, res): Promise<void> => {
   const calendrier = await db
     .select()
     .from(calendriersTable)
-    .orderBy(calendriersTable.importedAt)
+    .orderBy(sql`${calendriersTable.importedAt} DESC`)
     .limit(1)
     .then((r) => r[0] ?? null);
 

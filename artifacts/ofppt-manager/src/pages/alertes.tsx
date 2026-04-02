@@ -90,7 +90,20 @@ export default function Alertes() {
                     <TableCell>
                       <AlertBadge niveau={alerte.niveau} />
                     </TableCell>
-                    <TableCell className="font-medium text-sm">{alerte.message}</TableCell>
+                    <TableCell className="text-sm">
+                      {(() => {
+                        const parts = alerte.message.split(' — ');
+                        if (parts.length > 1) {
+                          return (
+                            <>
+                              <span className="text-muted-foreground">{parts[0]} — </span>
+                              <strong className="font-semibold">{parts.slice(1).join(' — ')}</strong>
+                            </>
+                          );
+                        }
+                        return <span className="font-medium">{alerte.message}</span>;
+                      })()}
+                    </TableCell>
                     <TableCell>
                       {alerte.entity === 'groupe' ? (
                         <Link href={`/groupes/${alerte.entityId}`} className="hover:underline text-primary font-mono text-sm">

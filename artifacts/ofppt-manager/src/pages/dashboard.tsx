@@ -90,12 +90,12 @@ export default function Dashboard() {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">{tauxMoyen.toFixed(1)}%</div>
+            <div className="text-2xl font-bold font-mono">{(tauxMoyen * 100).toFixed(1)}%</div>
             <p className="text-xs mt-1 flex items-center gap-1 font-mono">
               <span className={ecartGlobal < 0 ? "text-destructive" : (ecartGlobal > 0 ? "text-success" : "text-muted-foreground")}>
-                {ecartGlobal > 0 ? '+' : ''}{ecartGlobal.toFixed(1)}%
+                {ecartGlobal > 0 ? '+' : ''}{(ecartGlobal * 100).toFixed(1)}%
               </span>
-              <span className="text-muted-foreground">vs {tauxTheorique.toFixed(1)}% théo.</span>
+              <span className="text-muted-foreground">vs {(tauxTheorique * 100).toFixed(1)}% théo.</span>
             </p>
           </CardContent>
         </Card>
@@ -157,7 +157,20 @@ export default function Dashboard() {
                         <AlertBadge niveau={alerte.niveau} />
                         <span className="font-medium text-sm">{alerte.entityLabel}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground">{alerte.message}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {(() => {
+                          const parts = alerte.message.split(' — ');
+                          if (parts.length > 1) {
+                            return (
+                              <>
+                                <span>{parts[0]} — </span>
+                                <strong className="font-semibold text-foreground">{parts.slice(1).join(' — ')}</strong>
+                              </>
+                            );
+                          }
+                          return alerte.message;
+                        })()}
+                      </p>
                     </div>
                   </div>
                 ))}

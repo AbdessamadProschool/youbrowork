@@ -11,8 +11,9 @@ export interface ProgressGaugeProps extends React.HTMLAttributes<HTMLDivElement>
 
 const ProgressGauge = React.forwardRef<HTMLDivElement, ProgressGaugeProps>(
   ({ className, tauxReel = 0, tauxTheorique = 0, ecart = 0, statut, showLabels = true, ...props }, ref) => {
-    const reel = tauxReel || 0;
-    const theorique = tauxTheorique || 0;
+    const reel = (tauxReel || 0) * 100;
+    const theorique = (tauxTheorique || 0) * 100;
+    const ecartPct = (ecart || 0) * 100;
     
     let colorClass = "bg-gray-400";
     let icon = "○";
@@ -33,20 +34,18 @@ const ProgressGauge = React.forwardRef<HTMLDivElement, ProgressGaugeProps>(
           </div>
         )}
         <div className="relative h-2.5 w-full bg-secondary rounded-full overflow-hidden">
-          {/* Theoretical target line */}
           <div 
             className="absolute top-0 bottom-0 border-r-2 border-dashed border-muted-foreground/50 z-10"
             style={{ width: `${Math.min(100, Math.max(0, theorique))}%` }}
           />
-          {/* Real progress bar */}
           <div 
             className={cn("h-full transition-all duration-500 ease-in-out", colorClass)}
             style={{ width: `${Math.min(100, Math.max(0, reel))}%` }}
           />
         </div>
         {showLabels && ecart !== null && ecart !== undefined && (
-           <div className={cn("text-[10px] font-mono text-right", ecart < 0 ? "text-destructive" : (ecart > 0 ? "text-success" : "text-muted-foreground"))}>
-              Écart: {ecart > 0 ? '+' : ''}{ecart.toFixed(1)}%
+           <div className={cn("text-[10px] font-mono text-right", ecartPct < 0 ? "text-destructive" : (ecartPct > 0 ? "text-success" : "text-muted-foreground"))}>
+              Écart: {ecartPct > 0 ? '+' : ''}{ecartPct.toFixed(1)}%
            </div>
         )}
       </div>
