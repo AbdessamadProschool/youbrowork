@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "OFPPT Manager"
+version = "1.0.0"
+id = "artifacts/ofppt-manager"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19594
+
+[services.development]
+run = "pnpm --filter @workspace/ofppt-manager run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ofppt-manager", "run", "build" ]
+publicDir = "artifacts/ofppt-manager/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19594"
+BASE_PATH = "/"

@@ -3,20 +3,34 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: OFPPT Manager API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Dashboard KPIs
+  - name: groupes
+    description: Groupes de formation
+  - name: stagiaires
+    description: Stagiaires
+  - name: modules
+    description: Modules
+  - name: alertes
+    description: Alertes
+  - name: import
+    description: Import de fichiers
+  - name: calendrier
+    description: Calendrier
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +38,257 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Get global KPIs and summary
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardData"
+
+  /groupes:
+    get:
+      operationId: getGroupes
+      tags: [groupes]
+      summary: List all groupes
+      parameters:
+        - name: statut
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of groupes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Groupe"
+    post:
+      operationId: createGroupe
+      tags: [groupes]
+      summary: Create a groupe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupeBody"
+      responses:
+        "201":
+          description: Created groupe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Groupe"
+
+  /groupes/{id}:
+    get:
+      operationId: getGroupe
+      tags: [groupes]
+      summary: Get a groupe by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Groupe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Groupe"
+
+  /groupes/{id}/avancement:
+    get:
+      operationId: getGroupeAvancement
+      tags: [groupes]
+      summary: Get module progress for a groupe
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Avancement data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupeAvancement"
+
+  /groupes/{id}/stagiaires:
+    get:
+      operationId: getGroupeStagiaires
+      tags: [groupes]
+      summary: Get ranked list of stagiaires in a groupe
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of stagiaires with notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StagiaireWithNotes"
+
+  /stagiaires/{cef}/notes:
+    get:
+      operationId: getStagiaireNotes
+      tags: [stagiaires]
+      summary: Get all notes for a stagiaire
+      parameters:
+        - name: cef
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stagiaire with notes and alerts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StagiaireDetail"
+
+  /stagiaires:
+    get:
+      operationId: getStagiaires
+      tags: [stagiaires]
+      summary: List all stagiaires
+      parameters:
+        - name: groupeId
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of stagiaires
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StagiaireWithNotes"
+
+  /modules:
+    get:
+      operationId: getModules
+      tags: [modules]
+      summary: List all modules
+      responses:
+        "200":
+          description: List of modules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Module"
+
+  /alertes:
+    get:
+      operationId: getAlertes
+      tags: [alertes]
+      summary: Get all active alerts
+      parameters:
+        - name: niveau
+          in: query
+          schema:
+            type: string
+            enum: [critique, warning]
+        - name: entity
+          in: query
+          schema:
+            type: string
+            enum: [stagiaire, groupe]
+      responses:
+        "200":
+          description: List of alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alerte"
+
+  /import:
+    post:
+      operationId: importFile
+      tags: [import]
+      summary: Upload and process a file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                type:
+                  type: string
+                  enum: [etat, calendrier, pv_efm]
+                groupeId:
+                  type: string
+              required: [file, type]
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+
+  /import/logs:
+    get:
+      operationId: getImportLogs
+      tags: [import]
+      summary: Get import history
+      responses:
+        "200":
+          description: List of import logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ImportLog"
+
+  /calendrier:
+    get:
+      operationId: getCalendrier
+      tags: [calendrier]
+      summary: Get current calendrier data
+      responses:
+        "200":
+          description: Calendrier with taux theorique
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendrierData"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +296,392 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    DashboardData:
+      type: object
+      properties:
+        groupesActifs:
+          type: integer
+        tauxMoyen:
+          type: number
+        tauxTheorique:
+          type: number
+        alertesCount:
+          type: integer
+        alertesCritiques:
+          type: integer
+        modulesValides:
+          type: integer
+        modulesTotal:
+          type: integer
+        topAlerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alerte"
+        recentImports:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportLog"
+      required:
+        - groupesActifs
+        - tauxMoyen
+        - tauxTheorique
+        - alertesCount
+        - alertesCritiques
+        - modulesValides
+        - modulesTotal
+        - topAlerts
+        - recentImports
+
+    Groupe:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        annee:
+          type: integer
+        mode:
+          type: string
+        filiereCode:
+          type: string
+        filiereNom:
+          type: string
+        statut:
+          type: string
+        anneeFormation:
+          type: string
+        tauxReel:
+          type: number
+          nullable: true
+        tauxTheorique:
+          type: number
+          nullable: true
+        ecart:
+          type: number
+          nullable: true
+        avancementStatut:
+          type: string
+          enum: [en_avance, a_jour, en_retard, non_demarre]
+        nbStagiaires:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - code
+        - annee
+        - mode
+        - filiereCode
+        - filiereNom
+        - statut
+        - anneeFormation
+        - avancementStatut
+        - nbStagiaires
+        - createdAt
+
+    CreateGroupeBody:
+      type: object
+      properties:
+        code:
+          type: string
+        mode:
+          type: string
+          enum: [R_PP, R_FF, FPA_PP, FPA_FF]
+        filiereCode:
+          type: string
+        filiereNom:
+          type: string
+        anneeFormation:
+          type: string
+        statut:
+          type: string
+      required: [code, mode, filiereCode, filiereNom, anneeFormation]
+
+    GroupeAvancement:
+      type: object
+      properties:
+        groupeId:
+          type: string
+        groupeCode:
+          type: string
+        tauxTheorique:
+          type: number
+          nullable: true
+        ecartGlobal:
+          type: number
+          nullable: true
+        projection:
+          type: object
+          nullable: true
+          properties:
+            dateFin:
+              type: string
+              nullable: true
+            retardJours:
+              type: number
+              nullable: true
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModuleAvancement"
+      required: [groupeId, groupeCode, modules]
+
+    ModuleAvancement:
+      type: object
+      properties:
+        id:
+          type: string
+        moduleCode:
+          type: string
+        moduleIntitule:
+          type: string
+        mhGlobale:
+          type: number
+        mhRealise:
+          type: number
+          nullable: true
+        tauxReel:
+          type: number
+          nullable: true
+        tauxTheorique:
+          type: number
+          nullable: true
+        ecart:
+          type: number
+          nullable: true
+        statut:
+          type: string
+          enum: [en_avance, a_jour, en_retard, non_demarre, termine, anomalie]
+        nbSeancesVal:
+          type: integer
+        nbSeancesEnCours:
+          type: integer
+        sourceFile:
+          type: string
+          nullable: true
+        importedAt:
+          type: string
+          nullable: true
+      required:
+        - id
+        - moduleCode
+        - moduleIntitule
+        - mhGlobale
+        - statut
+        - nbSeancesVal
+        - nbSeancesEnCours
+
+    Stagiaire:
+      type: object
+      properties:
+        id:
+          type: string
+        cef:
+          type: string
+        nom:
+          type: string
+        prenom:
+          type: string
+        nomComplet:
+          type: string
+        groupeId:
+          type: string
+        groupeCode:
+          type: string
+      required: [id, cef, nom, prenom, nomComplet, groupeId, groupeCode]
+
+    NoteModule:
+      type: object
+      properties:
+        id:
+          type: string
+        moduleCode:
+          type: string
+        moduleIntitule:
+          type: string
+        cc:
+          type: number
+        efm:
+          type: number
+        efmStatut:
+          type: string
+          enum: [PRESENT, ABSENT]
+        moyenneOff:
+          type: number
+        moyenneNorm:
+          type: number
+        valide:
+          type: boolean
+        sourceFile:
+          type: string
+        importedAt:
+          type: string
+      required:
+        - id
+        - moduleCode
+        - moduleIntitule
+        - cc
+        - efm
+        - efmStatut
+        - moyenneOff
+        - moyenneNorm
+        - valide
+        - sourceFile
+        - importedAt
+
+    Alerte:
+      type: object
+      properties:
+        id:
+          type: string
+        niveau:
+          type: string
+          enum: [critique, warning, anomalie]
+        message:
+          type: string
+        entity:
+          type: string
+          enum: [stagiaire, groupe]
+        entityId:
+          type: string
+        entityLabel:
+          type: string
+        createdAt:
+          type: string
+      required: [id, niveau, message, entity, entityId, entityLabel, createdAt]
+
+    StagiaireWithNotes:
+      type: object
+      properties:
+        id:
+          type: string
+        cef:
+          type: string
+        nom:
+          type: string
+        prenom:
+          type: string
+        nomComplet:
+          type: string
+        groupeId:
+          type: string
+        groupeCode:
+          type: string
+        moyenneGenerale:
+          type: number
+          nullable: true
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NoteModule"
+        alertes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alerte"
+        rang:
+          type: integer
+          nullable: true
+      required: [id, cef, nom, prenom, nomComplet, groupeId, groupeCode, notes, alertes]
+
+    StagiaireDetail:
+      type: object
+      properties:
+        stagiaire:
+          $ref: "#/components/schemas/Stagiaire"
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NoteModule"
+        alertes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alerte"
+        moyenneGenerale:
+          type: number
+          nullable: true
+      required: [stagiaire, notes, alertes]
+
+    Module:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        intitule:
+          type: string
+        mhGlobale:
+          type: integer
+        filiereCode:
+          type: string
+        niveau:
+          type: string
+      required: [id, code, intitule, mhGlobale, filiereCode, niveau]
+
+    ImportResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        imported:
+          type: integer
+        warnings:
+          type: array
+          items:
+            type: string
+        errors:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+      required: [success, imported, warnings, errors]
+
+    ImportLog:
+      type: object
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        type:
+          type: string
+        nbLignes:
+          type: integer
+        nbErreurs:
+          type: integer
+        warnings:
+          type: array
+          items:
+            type: string
+        dureeMs:
+          type: integer
+        createdAt:
+          type: string
+      required: [id, filename, type, nbLignes, nbErreurs, warnings, dureeMs, createdAt]
+
+    CalendrierData:
+      type: object
+      properties:
+        id:
+          type: string
+          nullable: true
+        typeCalendrier:
+          type: string
+          nullable: true
+        totalJours:
+          type: integer
+        joursRealises:
+          type: integer
+        tauxTheorique:
+          type: number
+        dateReference:
+          type: string
+          nullable: true
+        sourceFile:
+          type: string
+          nullable: true
+      required: [totalJours, joursRealises, tauxTheorique]

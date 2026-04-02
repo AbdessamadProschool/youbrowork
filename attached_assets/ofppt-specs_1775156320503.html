@@ -1,0 +1,1774 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OFPPT Manager — Spécifications Techniques v1.0</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0f1117;
+    --ink-2: #2e3340;
+    --ink-3: #5c6370;
+    --ink-4: #9ba3b0;
+    --surface: #ffffff;
+    --surface-2: #f7f8fa;
+    --surface-3: #eef0f4;
+    --border: #e2e6ed;
+    --border-strong: #c8cdd8;
+    --accent: #1d6ef5;
+    --accent-light: #e8f0fe;
+    --green: #0f9960;
+    --green-light: #e3f6ee;
+    --orange: #e07b2a;
+    --orange-light: #fdf0e3;
+    --red: #d63b3b;
+    --red-light: #fdeaea;
+    --purple: #6b46e0;
+    --purple-light: #eeebfc;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'Sora', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: #f0f2f6;
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  /* ── LAYOUT ─────────────────────────────────────── */
+  .wrapper {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+  }
+
+  /* ── SIDEBAR ─────────────────────────────────────── */
+  .sidebar {
+    background: var(--ink);
+    color: #c8cdd8;
+    padding: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    font-size: 12.5px;
+  }
+
+  .sidebar-brand {
+    padding: 28px 24px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .sidebar-brand .logo-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: #5c6370;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .sidebar-brand h1 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #ffffff;
+    line-height: 1.3;
+  }
+  .sidebar-brand .version {
+    display: inline-block;
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    background: rgba(29,110,245,0.25);
+    color: #6fa8ff;
+    padding: 2px 8px;
+    border-radius: 20px;
+  }
+
+  .sidebar nav { padding: 16px 0; }
+  .nav-section {
+    padding: 12px 24px 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: #454c5e;
+  }
+  .nav-item {
+    display: block;
+    padding: 7px 24px;
+    color: #8d95a3;
+    text-decoration: none;
+    transition: all .15s;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  .nav-item:hover, .nav-item.active {
+    color: #ffffff;
+    background: rgba(255,255,255,0.04);
+    border-left-color: var(--accent);
+  }
+  .nav-item .num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: #454c5e;
+    margin-right: 8px;
+  }
+
+  /* ── MAIN ─────────────────────────────────────── */
+  .main { padding: 0; overflow: hidden; }
+
+  /* TOP BAR */
+  .topbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 48px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar .breadcrumb {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-4);
+  }
+  .topbar .breadcrumb span { color: var(--ink-3); }
+  .topbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+  }
+  .badge-blue { background: var(--accent-light); color: var(--accent); }
+  .badge-green { background: var(--green-light); color: var(--green); }
+  .badge-orange { background: var(--orange-light); color: var(--orange); }
+  .badge-red { background: var(--red-light); color: var(--red); }
+  .badge-purple { background: var(--purple-light); color: var(--purple); }
+
+  /* CONTENT */
+  .content { padding: 48px; max-width: 900px; }
+
+  /* SECTIONS */
+  .section {
+    margin-bottom: 72px;
+    scroll-margin-top: 80px;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-4);
+    min-width: 32px;
+  }
+  .section-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink-2);
+    margin: 32px 0 12px;
+  }
+  h3 {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-3);
+    margin: 20px 0 8px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    font-family: var(--mono);
+  }
+  p { color: var(--ink-2); margin-bottom: 12px; }
+
+  /* CARDS */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .card-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .stat-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+  }
+  .stat-card .label {
+    font-size: 11px;
+    color: var(--ink-4);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    font-family: var(--mono);
+    margin-bottom: 4px;
+  }
+  .stat-card .value {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .stat-card .sub {
+    font-size: 11px;
+    color: var(--ink-4);
+    margin-top: 2px;
+  }
+
+  /* TECH STACK */
+  .tech-row {
+    display: grid;
+    grid-template-columns: 140px 1fr auto;
+    gap: 16px;
+    align-items: start;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--surface-3);
+  }
+  .tech-row:last-child { border-bottom: none; }
+  .tech-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .tech-desc { font-size: 13px; color: var(--ink-3); }
+
+  /* DATA MODEL */
+  .model-block {
+    background: var(--ink);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+  }
+  .model-block pre {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    color: #abb2bf;
+    white-space: pre;
+  }
+  .model-block .kw { color: #c678dd; }
+  .model-block .type { color: #e5c07b; }
+  .model-block .str { color: #98c379; }
+  .model-block .cm { color: #5c6370; font-style: italic; }
+  .model-block .field { color: #61afef; }
+  .model-block .dec { color: #e06c75; }
+
+  /* PIPELINE */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 16px 0;
+    flex-wrap: wrap;
+  }
+  .pipe-step {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-family: var(--mono);
+    font-weight: 500;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .pipe-step.active {
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .pipe-arrow {
+    color: var(--ink-4);
+    padding: 0 8px;
+    font-size: 16px;
+  }
+
+  /* FORMULA BOX */
+  .formula {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 20px;
+    margin: 12px 0;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .formula .name {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    color: var(--ink-4);
+    margin-bottom: 6px;
+  }
+  .formula .eq { color: var(--ink); }
+  .formula .constraint {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
+  /* ALERT TABLE */
+  .alert-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto;
+    gap: 16px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .alert-row:last-child { border-bottom: none; }
+  .alert-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .alert-dot.red { background: var(--red); }
+  .alert-dot.orange { background: var(--orange); }
+  .alert-dot.green { background: var(--green); }
+  .alert-condition { font-size: 13px; color: var(--ink-2); }
+  .alert-level { font-size: 11px; font-family: var(--mono); }
+
+  /* SCREEN MOCKUP */
+  .screen-frame {
+    background: var(--surface-3);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 16px 0;
+  }
+  .screen-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+
+  .mock-nav {
+    background: var(--ink);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    gap: 20px;
+    margin-bottom: 12px;
+  }
+  .mock-nav-item {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: #5c6370;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+  }
+  .mock-nav-item.active { color: #fff; border-bottom-color: var(--accent); }
+
+  .mock-row {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .mock-kpi-row { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .mock-content-row { grid-template-columns: 1fr 1fr; }
+  .mock-kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 11px;
+  }
+  .mock-kpi .k-label { color: var(--ink-4); font-family: var(--mono); font-size: 9px; text-transform: uppercase; margin-bottom: 4px; }
+  .mock-kpi .k-val { font-size: 20px; font-weight: 600; color: var(--ink); }
+  .mock-kpi .k-trend { font-size: 10px; margin-top: 2px; }
+  .trend-up { color: var(--green); }
+  .trend-down { color: var(--red); }
+
+  .mock-chart {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    height: 160px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .mock-chart .chart-title { font-size: 11px; font-weight: 500; color: var(--ink-2); margin-bottom: 8px; }
+  .mock-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    flex: 1;
+    padding-top: 8px;
+  }
+  .mock-bar {
+    flex: 1;
+    border-radius: 4px 4px 0 0;
+    min-height: 4px;
+  }
+
+  .mock-table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .mock-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .mock-table th {
+    background: var(--surface-2);
+    padding: 8px 12px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--ink-4);
+    border-bottom: 1px solid var(--border);
+  }
+  .mock-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--surface-3);
+    color: var(--ink-2);
+  }
+  .mock-table tr:last-child td { border-bottom: none; }
+  .progress-mini {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+  }
+  .progress-track {
+    height: 4px;
+    background: var(--surface-3);
+    border-radius: 2px;
+    flex: 1;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  /* API ROUTE */
+  .api-route {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .api-route-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .api-route-header:hover { background: var(--surface-2); }
+  .method {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    min-width: 44px;
+    text-align: center;
+  }
+  .method-get { background: var(--green-light); color: var(--green); }
+  .method-post { background: var(--accent-light); color: var(--accent); }
+  .method-delete { background: var(--red-light); color: var(--red); }
+  .method-put { background: var(--orange-light); color: var(--orange); }
+  .api-path { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+  .api-desc { font-size: 12px; color: var(--ink-4); margin-left: auto; }
+  .api-body {
+    border-top: 1px solid var(--border);
+    padding: 14px 16px;
+    background: var(--surface-2);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-3);
+    line-height: 1.9;
+    display: none;
+  }
+  .api-route.open .api-body { display: block; }
+  .api-route.open .api-route-header { background: var(--surface-2); }
+
+  /* COMPONENT SPEC */
+  .comp-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .comp-header {
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .comp-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .comp-body { padding: 16px 20px; }
+  .prop-row {
+    display: grid;
+    grid-template-columns: 160px 100px 1fr;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--surface-3);
+    font-size: 12px;
+  }
+  .prop-row:last-child { border-bottom: none; }
+  .prop-name { font-family: var(--mono); color: var(--accent); }
+  .prop-type { font-family: var(--mono); color: var(--purple); }
+  .prop-desc { color: var(--ink-3); }
+
+  /* RULE BOX */
+  .rule-box {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .rule-box h4 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    margin-bottom: 10px;
+    font-family: var(--mono);
+  }
+  .rule-list {
+    list-style: none;
+    padding: 0;
+  }
+  .rule-list li {
+    padding: 4px 0;
+    padding-left: 16px;
+    position: relative;
+    font-size: 12.5px;
+    color: var(--ink-3);
+  }
+  .rule-list li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-size: 10px;
+    top: 5px;
+  }
+
+  /* DIVIDER */
+  .divider { height: 1px; background: var(--border); margin: 28px 0; }
+
+  /* NOTICE */
+  .notice {
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12.5px;
+    margin-bottom: 16px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .notice-info { background: var(--accent-light); color: #1a4fa0; border: 1px solid #b8d0fc; }
+  .notice-warn { background: var(--orange-light); color: #7a4010; border: 1px solid #f5d4a6; }
+  .notice-crit { background: var(--red-light); color: #7a1010; border: 1px solid #f5b8b8; }
+  .notice-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+
+  /* COLOR SYSTEM */
+  .color-swatch {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .color-swatch:last-child { border-bottom: none; }
+  .swatch { width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0; }
+  .swatch-name { font-weight: 500; color: var(--ink); min-width: 60px; }
+  .swatch-hex { font-family: var(--mono); color: var(--ink-4); font-size: 11px; }
+  .swatch-use { color: var(--ink-3); }
+
+  /* RESPONSIVE BREAKPOINT PILL */
+  .bp-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface-3);
+    color: var(--ink-4);
+    margin-right: 4px;
+  }
+
+  /* TABLE */
+  table.spec-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    margin: 12px 0;
+  }
+  .spec-table th {
+    background: var(--surface-2);
+    padding: 10px 14px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--ink-4);
+    border: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .spec-table td {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    color: var(--ink-2);
+    vertical-align: top;
+  }
+  .spec-table tr:nth-child(even) td { background: var(--surface-2); }
+
+  /* CODE INLINE */
+  code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink-2);
+  }
+  .mono { font-family: var(--mono); }
+
+  /* SCROLL */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #30353f; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+
+<!-- ══════════════════════════════════════════════
+     SIDEBAR
+══════════════════════════════════════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="logo-tag">Spec Document</div>
+    <h1>OFPPT Manager</h1>
+    <span class="version">v1.0.0 — 2025/2026</span>
+  </div>
+  <nav>
+    <div class="nav-section">Aperçu</div>
+    <a class="nav-item active" href="#overview"><span class="num">01</span>Vue d'ensemble</a>
+    <a class="nav-item" href="#stack"><span class="num">02</span>Stack technique</a>
+    <a class="nav-item" href="#data"><span class="num">03</span>Modèles de données</a>
+
+    <div class="nav-section">Import</div>
+    <a class="nav-item" href="#parsers"><span class="num">04</span>Parsers de fichiers</a>
+    <a class="nav-item" href="#pipeline"><span class="num">05</span>Pipeline d'import</a>
+
+    <div class="nav-section">Logique métier</div>
+    <a class="nav-item" href="#calculs"><span class="num">06</span>Calculs & formules</a>
+    <a class="nav-item" href="#alertes"><span class="num">07</span>Système d'alertes</a>
+
+    <div class="nav-section">Interface</div>
+    <a class="nav-item" href="#screens"><span class="num">08</span>Écrans & maquettes</a>
+    <a class="nav-item" href="#components"><span class="num">09</span>Composants UI</a>
+    <a class="nav-item" href="#design"><span class="num">10</span>Design system</a>
+
+    <div class="nav-section">API</div>
+    <a class="nav-item" href="#api"><span class="num">11</span>Endpoints REST</a>
+    <a class="nav-item" href="#extensions"><span class="num">12</span>Extensions futures</a>
+  </nav>
+</aside>
+
+<!-- ══════════════════════════════════════════════
+     MAIN
+══════════════════════════════════════════════ -->
+<main class="main">
+  <div class="topbar">
+    <span class="breadcrumb">OFPPT Manager <span>/ Specs v1.0</span></span>
+    <div class="topbar-right">
+      <span class="badge badge-green">Année 2025/2026</span>
+      <span class="badge badge-blue">Filière EB</span>
+      <span class="badge badge-purple">Spécialisation</span>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ═══ 01 VUE D'ENSEMBLE ═══ -->
+    <section class="section" id="overview">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <h1 class="section-title">Vue d'ensemble</h1>
+      </div>
+
+      <p>Application web de gestion pédagogique OFPPT permettant le suivi en temps réel de l'avancement des formations, l'analyse des performances stagiaires, et la centralisation des données issues de fichiers hétérogènes (Excel, PDF).</p>
+
+      <div class="card-grid-3">
+        <div class="stat-card">
+          <div class="label">Groupes pilotes</div>
+          <div class="value">EB101</div>
+          <div class="sub">Électricité Bâtiment 1A</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Modules tracés</div>
+          <div class="value">14</div>
+          <div class="sub">Dont 5 non démarrés</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Stagiaires</div>
+          <div class="value">19</div>
+          <div class="sub">Inscrits EB101</div>
+        </div>
+      </div>
+
+      <h2>Objectifs fonctionnels</h2>
+      <div class="card">
+        <div class="alert-row">
+          <div class="alert-dot green"></div>
+          <div class="alert-condition">Comparer le taux d'avancement réel vs théorique par groupe</div>
+          <span class="badge badge-blue">Priorité 1</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot green"></div>
+          <div class="alert-condition">Détecter les stagiaires en difficulté (notes, absences)</div>
+          <span class="badge badge-blue">Priorité 1</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition">Ingestion automatique des fichiers Excel (état, calendrier) et PDF (PV EFM)</div>
+          <span class="badge badge-orange">Priorité 2</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition">Projection de la date de fin estimée par module</div>
+          <span class="badge badge-orange">Priorité 2</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot red"></div>
+          <div class="alert-condition">Dashboard multi-établissements avec alertes globales</div>
+          <span class="badge badge-purple">Priorité 3</span>
+        </div>
+      </div>
+
+      <h2>Hiérarchie des entités</h2>
+      <div class="card" style="font-family: var(--mono); font-size: 12px; line-height: 2; color: var(--ink-3);">
+        <div><span style="color: var(--accent);">Etablissement</span> <span style="color: var(--ink-4);">→</span> CQP Sammara Oujda</div>
+        <div style="padding-left: 20px;"><span style="color: var(--green);">Filière</span> <span style="color: var(--ink-4);">→</span> Électricité de Bâtiment (EB)</div>
+        <div style="padding-left: 40px;"><span style="color: var(--orange);">Niveau</span> <span style="color: var(--ink-4);">→</span> Spécialisation (S, Q, T, TS)</div>
+        <div style="padding-left: 60px;"><span style="color: var(--purple);">Groupe</span> <span style="color: var(--ink-4);">→</span> EB101 (1ère année), EB201 (2ème année)</div>
+        <div style="padding-left: 80px;"><span style="color: var(--red);">Stagiaire</span> <span style="color: var(--ink-4);">→</span> 19 stagiaires inscrits</div>
+        <div style="padding-left: 100px;"><span style="color: var(--ink-3);">Module</span> <span style="color: var(--ink-4);">→</span> M101, M102, … (liés à filière + niveau)</div>
+      </div>
+
+      <div class="notice notice-info">
+        <span class="notice-icon">ℹ</span>
+        <div><strong>Règle de nommage des groupes :</strong> Numéros 100–199 = 1ère année, 200–299 = 2ème année. Exemple : <code>EB101</code> = Électricité Bâtiment, 1ère année, groupe 01.</div>
+      </div>
+    </section>
+
+    <!-- ═══ 02 STACK ═══ -->
+    <section class="section" id="stack">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <h1 class="section-title">Stack technique</h1>
+      </div>
+
+      <div class="card">
+        <div class="tech-row">
+          <div class="tech-name">Next.js 15</div>
+          <div class="tech-desc">Frontend + Backend — App Router, Server Actions, Route Handlers</div>
+          <span class="badge badge-blue">Core</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">Prisma ORM</div>
+          <div class="tech-desc">Modélisation des données, migrations, client type-safe</div>
+          <span class="badge badge-blue">Core</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">PostgreSQL</div>
+          <div class="tech-desc">Base de données relationnelle principale, JSONB pour métadonnées</div>
+          <span class="badge badge-blue">Core</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">ShadCN/UI</div>
+          <div class="tech-desc">Composants headless — Table, Dialog, Badge, Alert, Chart</div>
+          <span class="badge badge-green">UI</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">TailwindCSS</div>
+          <div class="tech-desc">Utility-first CSS, tokens couleur OFPPT, responsive</div>
+          <span class="badge badge-green">UI</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">Framer Motion</div>
+          <div class="tech-desc">Animations — entrées de page, transitions KPI, alertes</div>
+          <span class="badge badge-green">UI</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">SheetJS (xlsx)</div>
+          <div class="tech-desc">Parser Excel — lecture des calendriers et états d'avancement</div>
+          <span class="badge badge-orange">Parser</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">pdf-parse / pdfjs</div>
+          <div class="tech-desc">Extraction texte des PV EFM, détection tableaux par regex</div>
+          <span class="badge badge-orange">Parser</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">Recharts</div>
+          <div class="tech-desc">Graphes progress, radar stagiaires, courbes d'avancement</div>
+          <span class="badge badge-purple">Chart</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">Zod</div>
+          <div class="tech-desc">Validation schémas import, validation API, types inférés</div>
+          <span class="badge badge-purple">Validation</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 03 MODÈLES ═══ -->
+    <section class="section" id="data">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <h1 class="section-title">Modèles de données</h1>
+      </div>
+
+      <h2>Schema Prisma complet</h2>
+
+      <div class="model-block"><pre><span class="cm">// ── ÉTABLISSEMENT ─────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">Etablissement</span> {
+  id          <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  nom         <span class="type">String</span>
+  region      <span class="type">String</span>
+  filieres    <span class="type">Filiere[]</span>
+  annees      <span class="type">AnneeFormation[]</span>
+  createdAt   <span class="type">DateTime</span>  <span class="dec">@default(now())</span>
+}
+
+<span class="cm">// ── ANNÉE DE FORMATION ─────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">AnneeFormation</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  label           <span class="type">String</span>    <span class="cm">// ex: "2025/2026"</span>
+  etablissementId <span class="type">String</span>
+  etablissement   <span class="type">Etablissement</span>   <span class="dec">@relation(...)</span>
+  groupes         <span class="type">Groupe[]</span>
+  calendriers     <span class="type">Calendrier[]</span>
+}
+
+<span class="cm">// ── FILIÈRE ────────────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">Filiere</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  code            <span class="type">String</span>    <span class="cm">// ex: "EB" (Électricité Bâtiment)</span>
+  nom             <span class="type">String</span>    <span class="cm">// ex: "Électricité de Bâtiment"</span>
+  etablissementId <span class="type">String</span>
+  modules         <span class="type">Module[]</span>
+  groupes         <span class="type">Groupe[]</span>
+}
+
+<span class="cm">// ── MODULE ─────────────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">Module</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  code            <span class="type">String</span>    <span class="cm">// ex: "M101", "M102"</span>
+  intitule        <span class="type">String</span>    <span class="cm">// ex: "Métier et formation"</span>
+  mhGlobale       <span class="type">Int</span>       <span class="cm">// Masse horaire globale (MH.G)</span>
+  filiereId       <span class="type">String</span>
+  niveau          <span class="type">NiveauEnum</span>
+  avancements     <span class="type">Avancement[]</span>
+  notes           <span class="type">NoteModule[]</span>
+}
+
+<span class="cm">// ── GROUPE ─────────────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">Groupe</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  code            <span class="type">String</span>    <span class="cm">// ex: "EB101"</span>
+  annee           <span class="type">Int</span>       <span class="cm">// 1 ou 2 (extrait du code)</span>
+  mode            <span class="type">ModeEnum</span>  <span class="cm">// R-PP, R-FF, FPA-PP, FPA-FF</span>
+  filiereId       <span class="type">String</span>
+  anneeFormId     <span class="type">String</span>
+  statut          <span class="type">String</span>    <span class="cm">// "Actif" | "Clôturé"</span>
+  stagiaires      <span class="type">Stagiaire[]</span>
+  avancements     <span class="type">Avancement[]</span>
+}
+
+<span class="cm">// ── STAGIAIRE ──────────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">Stagiaire</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  cef             <span class="type">String</span>    <span class="dec">@unique</span>  <span class="cm">// ex: "2009052100036"</span>
+  nom             <span class="type">String</span>
+  prenom          <span class="type">String</span>
+  groupeId        <span class="type">String</span>
+  notes           <span class="type">NoteModule[]</span>
+}
+
+<span class="cm">// ── AVANCEMENT ─────────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">Avancement</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  groupeId        <span class="type">String</span>
+  moduleId        <span class="type">String</span>
+  mhGlobale       <span class="type">Float</span>     <span class="cm">// MH.G</span>
+  mhPlanAF        <span class="type">Float</span>     <span class="cm">// MH.P AF</span>
+  mhRealise       <span class="type">Float?</span>    <span class="cm">// Réal.G (null = non démarré)</span>
+  tauxReel        <span class="type">Float?</span>    <span class="cm">// Calculé: Réal.G / MH.G</span>
+  nbSeancesVal    <span class="type">Int</span>       <span class="cm">// NB.SValidées</span>
+  nbSeancesEnCours <span class="type">Int</span>      <span class="cm">// NB.SEn cours</span>
+  sourceFile      <span class="type">String</span>    <span class="cm">// Nom du fichier source</span>
+  importedAt      <span class="type">DateTime</span>
+}
+
+<span class="cm">// ── NOTE MODULE ────────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">NoteModule</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  stagiaireId     <span class="type">String</span>
+  moduleId        <span class="type">String</span>
+  cc              <span class="type">Float</span>     <span class="cm">// Contrôle Continu /20</span>
+  efm             <span class="type">Float</span>     <span class="cm">// Examen Fin Module /40 (0 si absent)</span>
+  efmStatut       <span class="type">EFMStatut</span> <span class="cm">// PRESENT | ABSENT</span>
+  moyenneOff      <span class="type">Float</span>     <span class="cm">// (CC + EFM) / 3</span>
+  moyenneNorm     <span class="type">Float</span>     <span class="cm">// (CC + EFM/2) / 2</span>
+  sourceFile      <span class="type">String</span>
+  importedAt      <span class="type">DateTime</span>
+}
+
+<span class="cm">// ── CALENDRIER ─────────────────────────────────────────</span>
+<span class="kw">model</span> <span class="type">Calendrier</span> {
+  id              <span class="type">String</span>    <span class="dec">@id</span> <span class="dec">@default(cuid())</span>
+  anneeFormId     <span class="type">String</span>
+  typeCalendrier  <span class="type">String</span>    <span class="cm">// "1A-CDJ R-PP", "2A-CDJ R-FF", etc.</span>
+  totalJours      <span class="type">Int</span>       <span class="cm">// Nombre de "1" dans toute la ligne</span>
+  joursRealises   <span class="type">Int</span>       <span class="cm">// "1" jusqu'à date_reference</span>
+  tauxTheorique   <span class="type">Float</span>     <span class="cm">// joursRealises / totalJours</span>
+  dateReference   <span class="type">DateTime</span>
+  jourDetails     <span class="type">Json</span>      <span class="cm">// [{date, statut: "1"|"ST"|"holiday"|"EFF"}]</span>
+  sourceFile      <span class="type">String</span>
+}
+
+<span class="cm">// ── ENUMS ──────────────────────────────────────────────</span>
+<span class="kw">enum</span> <span class="type">NiveauEnum</span>  { S Q T TS }
+<span class="kw">enum</span> <span class="type">ModeEnum</span>    { R_PP R_FF FPA_PP FPA_FF }
+<span class="kw">enum</span> <span class="type">EFMStatut</span>   { PRESENT ABSENT }</pre>
+      </div>
+    </section>
+
+    <!-- ═══ 04 PARSERS ═══ -->
+    <section class="section" id="parsers">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <h1 class="section-title">Parsers de fichiers</h1>
+      </div>
+
+      <h2>Parser A — État d'avancement (Excel)</h2>
+      <p>Fichier source : <code>EtatXLS_*.xlsx</code> — Sheet : <code>Sheet1</code></p>
+
+      <div class="rule-box">
+        <h4>Colonnes attendues (row 0 = headers)</h4>
+        <ul class="rule-list">
+          <li><code>Groupe</code> — Code groupe (ex: EB101)</li>
+          <li><code>Statut</code> — "Actif" ou autre</li>
+          <li><code>Module</code> — Intitulé long du module</li>
+          <li><code>MH.G</code> — Masse horaire globale (Float)</li>
+          <li><code>Réal.G</code> — Heures réalisées (Float | NaN)</li>
+          <li><code>% Gl.</code> — Taux réel brut (Float)</li>
+          <li><code>NB.SValidées</code> — Séances validées (Int)</li>
+          <li><code>NB.SEn cours</code> — Séances en cours (Int)</li>
+        </ul>
+      </div>
+
+      <div class="notice notice-warn">
+        <span class="notice-icon">⚠</span>
+        <div><code>Réal.G</code> peut être <code>NaN</code> (module non démarré) — traiter comme <code>0</code> pour affichage, conserver <code>null</code> en base. Un taux <code>% Gl. > 1.07</code> (107%) = anomalie à signaler.</div>
+      </div>
+
+      <h2>Parser B — Calendrier (Excel)</h2>
+      <p>Fichier source : <code>CALENDRIER_25-26.xlsx</code> — Sheet : <code>25-26</code></p>
+
+      <div class="rule-box">
+        <h4>Structure de la feuille</h4>
+        <ul class="rule-list">
+          <li>Row 2 (index 2) : en-têtes de semaines (numérotées 1–45)</li>
+          <li>Row 3 (index 3) : jours de la semaine (L, M, M, J, V, S)</li>
+          <li>Row 4 (index 4) : dates réelles (datetime objects)</li>
+          <li>Rows 5+ : lignes de types de calendrier avec cellules "1", "ST", texte arabe, NaN</li>
+        </ul>
+      </div>
+
+      <div class="rule-box">
+        <h4>Lignes à extraire uniquement</h4>
+        <ul class="rule-list">
+          <li><code>1A-CDJ (Résidentiel-passage)</code> — pour groupes EB1xx</li>
+          <li><code>2A-CDJ (Résidentiel-Fin de formation)</code> — pour groupes EB2xx</li>
+        </ul>
+      </div>
+
+      <table class="spec-table">
+        <thead>
+          <tr>
+            <th>Valeur cellule</th>
+            <th>Signification</th>
+            <th>Compter ?</th>
+            <th>Statut stocké</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>"1"</code> ou <code>1</code></td><td>Jour de formation valide</td><td>✅ Oui</td><td><code>"FORMATION"</code></td></tr>
+          <tr><td><code>NaN</code> / vide</td><td>Week-end / non applicable</td><td>❌ Non</td><td><code>"VIDE"</code></td></tr>
+          <tr><td>Texte arabe</td><td>Jour férié national</td><td>❌ Non</td><td><code>"FERIE"</code></td></tr>
+          <tr><td><code>"ST"</code></td><td>Période de stage</td><td>❌ Non</td><td><code>"STAGE"</code></td></tr>
+          <tr><td><code>"EFF"</code></td><td>Fin de formation</td><td>❌ Non</td><td><code>"FIN"</code></td></tr>
+          <tr><td>Texte "عطلة..."</td><td>Vacances scolaires</td><td>❌ Non</td><td><code>"VACANCES"</code></td></tr>
+        </tbody>
+      </table>
+
+      <h2>Parser C — PV EFM (PDF)</h2>
+      <p>Fichiers source : <code>PV_EFM_EB101_M*.pdf</code></p>
+
+      <div class="rule-box">
+        <h4>Données extraites par regex du texte PDF</h4>
+        <ul class="rule-list">
+          <li><strong>En-tête :</strong> Établissement, Filière, Année, Groupe, Niveau, Intitulé Module</li>
+          <li><strong>Statistiques :</strong> Inscrits, Présents, Absents</li>
+          <li><strong>Tableau :</strong> CEF (14 chiffres), Nom & Prénom, CC/20, EFM/40, Moy Module/20</li>
+          <li><strong>Cas Absent :</strong> valeur EFM = texte "Absent" → stocker <code>efm=0</code>, <code>efmStatut=ABSENT</code></li>
+        </ul>
+      </div>
+
+      <div class="model-block"><pre><span class="cm">// Regex patterns pour extraction PDF</span>
+
+<span class="cm">// Extraction header</span>
+<span class="field">ETABLISSEMENT</span>: <span class="str">/Etablissement\s*:\s*(.+)/i</span>
+<span class="field">FILIERE</span>:       <span class="str">/Filière\s*:\s*(.+)/i</span>
+<span class="field">ANNEE</span>:         <span class="str">/Année de formation\s*:\s*(\d{4}\/\d{4})/i</span>
+<span class="field">GROUPE</span>:        <span class="str">/Groupe de formation\s*:\s*(EB\d{3})/i</span>
+<span class="field">MODULE</span>:        <span class="str">/Intitulé du Module:\s*(.+?)\s*\(M(\d+)\)/i</span>
+<span class="field">INSCRITS</span>:      <span class="str">/Inscrits:(\d+)\s*\|Présents:(\d+)\s*\|Absents:(\d+)/i</span>
+
+<span class="cm">// Extraction lignes tableau stagiaires</span>
+<span class="field">ROW</span>: <span class="str">/^(\d{13,14})\s+(.+?)\s+([\d.]+)\s+([\d.]+|Absent)\s+([\d.]+)$/m</span>
+
+<span class="cm">// Validation CEF (14 chiffres)</span>
+<span class="field">CEF</span>: <span class="str">/^\d{13,14}$/</span></pre>
+      </div>
+    </section>
+
+    <!-- ═══ 05 PIPELINE ═══ -->
+    <section class="section" id="pipeline">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <h1 class="section-title">Pipeline d'import</h1>
+      </div>
+
+      <div class="pipeline">
+        <div class="pipe-step active">UPLOAD</div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">PARSING</div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">NORMALISATION</div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">VALIDATION (Zod)</div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">STOCKAGE</div>
+      </div>
+
+      <div class="notice notice-crit">
+        <span class="notice-icon">🔒</span>
+        <div><strong>Règle critique :</strong> Les données sources ne sont jamais modifiées. Toutes les transformations sont traçables via <code>sourceFile</code> + <code>importedAt</code> sur chaque enregistrement. Les valeurs originales sont conservées telles quelles.</div>
+      </div>
+
+      <h2>Étapes détaillées</h2>
+      <div class="card">
+        <div class="alert-row">
+          <div class="alert-dot green"></div>
+          <div class="alert-condition"><strong>1. Upload</strong> — Réception fichier via <code>POST /api/import</code>, vérification type MIME (xlsx, pdf), taille max 10MB</div>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot green"></div>
+          <div class="alert-condition"><strong>2. Parsing</strong> — Sélection parser selon type (SheetJS pour xlsx, pdf-parse pour PDF), extraction des données brutes</div>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot green"></div>
+          <div class="alert-condition"><strong>3. Normalisation</strong> — Conversion types, gestion NaN/null, calcul champs dérivés (tauxReel, moyennes), detection statuts</div>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition"><strong>4. Validation Zod</strong> — Vérification schémas, détection anomalies (taux > 107%), validation CEF format</div>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition"><strong>5. Stockage</strong> — Upsert Prisma (conflit sur cef+moduleId pour notes, groupeId+moduleId pour avancement)</div>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot red"></div>
+          <div class="alert-condition"><strong>6. Log</strong> — Enregistrement ImportLog : nbLignes, nbErreurs, avertissements, durée, utilisateur</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 06 CALCULS ═══ -->
+    <section class="section" id="calculs">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <h1 class="section-title">Calculs & formules</h1>
+      </div>
+
+      <h2>Taux théorique (calendrier)</h2>
+
+      <div class="formula">
+        <div class="name">Date de référence</div>
+        <div class="eq">date_ref = min(aujourd'hui, dernière_date_calendrier)</div>
+      </div>
+      <div class="formula">
+        <div class="name">Jours réalisés</div>
+        <div class="eq">jours_realises = COUNT(cellules == "1" AND date &lt;= date_ref)</div>
+      </div>
+      <div class="formula">
+        <div class="name">Total jours</div>
+        <div class="eq">total_jours = COUNT(toutes cellules == "1")</div>
+      </div>
+      <div class="formula">
+        <div class="name">Taux théorique ← Valeur principale</div>
+        <div class="eq">taux_theorique = (jours_realises / total_jours) × 100</div>
+        <div class="constraint">⚑ Contrainte : 0% ≤ taux_theorique ≤ 100%</div>
+      </div>
+
+      <h2>Taux réel (état d'avancement)</h2>
+
+      <div class="formula">
+        <div class="name">Taux réel brut</div>
+        <div class="eq">taux_reel_brut = (Réal.G / MH.G) × 100</div>
+      </div>
+      <div class="formula">
+        <div class="name">Taux réel affiché</div>
+        <div class="eq">taux_reel = min(taux_reel_brut, 100)</div>
+        <div class="constraint">⚑ Dépassement toléré jusqu'à 107% — au-delà = ANOMALIE signalée</div>
+      </div>
+
+      <h2>Comparaison avancement</h2>
+
+      <div class="formula">
+        <div class="name">Écart</div>
+        <div class="eq">ecart = taux_reel − taux_theorique</div>
+      </div>
+
+      <table class="spec-table">
+        <thead>
+          <tr><th>Condition écart</th><th>Statut</th><th>Couleur</th><th>Action</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>ecart > +5%</code></td><td>En avance</td><td style="color:var(--green)">■ Vert</td><td>—</td></tr>
+          <tr><td><code>-5% ≤ ecart ≤ +5%</code></td><td>À jour</td><td style="color:var(--accent)">■ Bleu</td><td>—</td></tr>
+          <tr><td><code>ecart < -5%</code></td><td>En retard</td><td style="color:var(--red)">■ Rouge</td><td>Alerte automatique</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Calcul des notes (PV EFM)</h2>
+
+      <div class="formula">
+        <div class="name">Moyenne officielle OFPPT</div>
+        <div class="eq">moy_officielle = (CC + EFM) / 3</div>
+        <div class="constraint">⚑ CC sur /20, EFM sur /40 — résultat sur /20</div>
+      </div>
+      <div class="formula">
+        <div class="name">Moyenne normalisée</div>
+        <div class="eq">moy_normalisee = (CC + (EFM / 2)) / 2</div>
+        <div class="constraint">⚑ Variante interne pour comparaisons — toutes valeurs ramenées à /20</div>
+      </div>
+
+      <div class="notice notice-warn">
+        <span class="notice-icon">⚠</span>
+        <div>Cas <strong>Absent</strong> : EFM = 0, statut ABSENT. Inclus dans les moyennes de groupe avec valeur 0. La moyenne officielle devient <code>(CC + 0) / 3 = CC/3</code>.</div>
+      </div>
+
+      <h2>Analytique avancée</h2>
+
+      <div class="formula">
+        <div class="name">Vitesse pédagogique</div>
+        <div class="eq">vitesse = Réal.G / jours_realises  (heures/jour)</div>
+      </div>
+      <div class="formula">
+        <div class="name">Projection fin de formation</div>
+        <div class="eq">mh_restante = MH.G − Réal.G</div>
+        <div class="eq" style="margin-top:6px;">semaines_restantes = mh_restante / (vitesse × 6 jours/semaine)</div>
+        <div class="eq" style="margin-top:6px;">date_fin_estimee = aujourd'hui + semaines_restantes</div>
+        <div class="constraint">⚑ Nécessite au moins 5 jours réalisés pour être fiable</div>
+      </div>
+      <div class="formula">
+        <div class="name">Retard estimé</div>
+        <div class="eq">retard_jours = date_fin_estimee − date_fin_calendrier</div>
+        <div class="constraint">⚑ Positif = retard, négatif = avance</div>
+      </div>
+    </section>
+
+    <!-- ═══ 07 ALERTES ═══ -->
+    <section class="section" id="alertes">
+      <div class="section-header">
+        <span class="section-num">07</span>
+        <h1 class="section-title">Système d'alertes</h1>
+      </div>
+
+      <h2>Alertes niveau stagiaire</h2>
+      <div class="card">
+        <div class="alert-row">
+          <div class="alert-dot red"></div>
+          <div class="alert-condition">Moyenne module &lt; 10/20</div>
+          <span class="badge badge-red">ALERTE ROUGE</span>
+          <span class="badge badge-orange">Stagiaire</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot red"></div>
+          <div class="alert-condition">Absent à l'EFM (efmStatut = ABSENT)</div>
+          <span class="badge badge-red">ALERTE ROUGE</span>
+          <span class="badge badge-orange">Stagiaire</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition">Nombre d'absences &gt; 3</div>
+          <span class="badge badge-orange">WARNING</span>
+          <span class="badge badge-orange">Stagiaire</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition">CC = 0.00 (absence éventuelle ou non rendu)</div>
+          <span class="badge badge-orange">WARNING</span>
+          <span class="badge badge-orange">Stagiaire</span>
+        </div>
+      </div>
+
+      <h2>Alertes niveau groupe</h2>
+      <div class="card">
+        <div class="alert-row">
+          <div class="alert-dot red"></div>
+          <div class="alert-condition">Moyenne générale groupe &lt; 10/20 sur un module</div>
+          <span class="badge badge-red">CRITIQUE</span>
+          <span class="badge badge-blue">Groupe</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot red"></div>
+          <div class="alert-condition">Retard pédagogique (écart &lt; −5%)</div>
+          <span class="badge badge-red">CRITIQUE</span>
+          <span class="badge badge-blue">Groupe</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition">Taux réel &gt; 107% (dépassement anormal)</div>
+          <span class="badge badge-orange">ANOMALIE</span>
+          <span class="badge badge-blue">Groupe</span>
+        </div>
+        <div class="alert-row">
+          <div class="alert-dot orange"></div>
+          <div class="alert-condition">Plus de 25% des stagiaires absents à un EFM</div>
+          <span class="badge badge-orange">WARNING</span>
+          <span class="badge badge-blue">Groupe</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 08 ÉCRANS ═══ -->
+    <section class="section" id="screens">
+      <div class="section-header">
+        <span class="section-num">08</span>
+        <h1 class="section-title">Écrans & maquettes</h1>
+      </div>
+
+      <h2>Écran 1 — Dashboard global</h2>
+      <div class="screen-frame">
+        <div class="screen-bar">
+          <span class="dot dot-red"></span>
+          <span class="dot dot-yellow"></span>
+          <span class="dot dot-green"></span>
+          <span style="margin-left:8px; font-size:11px;">ofppt-manager.ma/dashboard</span>
+        </div>
+        <div class="mock-nav">
+          <div class="mock-nav-item active">Dashboard</div>
+          <div class="mock-nav-item">Groupes</div>
+          <div class="mock-nav-item">Stagiaires</div>
+          <div class="mock-nav-item">Import</div>
+          <div class="mock-nav-item">Alertes</div>
+        </div>
+        <div class="mock-row mock-kpi-row">
+          <div class="mock-kpi">
+            <div class="k-label">Groupes actifs</div>
+            <div class="k-val">1</div>
+            <div class="k-trend trend-up">EB101</div>
+          </div>
+          <div class="mock-kpi">
+            <div class="k-label">Taux moyen</div>
+            <div class="k-val">72%</div>
+            <div class="k-trend trend-up">↑ +3% ce mois</div>
+          </div>
+          <div class="mock-kpi">
+            <div class="k-label">Alertes actives</div>
+            <div class="k-val" style="color:var(--red)">4</div>
+            <div class="k-trend trend-down">2 critiques</div>
+          </div>
+          <div class="mock-kpi">
+            <div class="k-label">Modules validés</div>
+            <div class="k-val">9 / 14</div>
+            <div class="k-trend">64% complétés</div>
+          </div>
+        </div>
+        <div class="mock-row mock-content-row">
+          <div class="mock-chart">
+            <div class="chart-title">Avancement par module (EB101)</div>
+            <div class="mock-bars">
+              <div class="mock-bar" style="height:100%;background:var(--green);opacity:.7;"></div>
+              <div class="mock-bar" style="height:100%;background:var(--green);opacity:.7;"></div>
+              <div class="mock-bar" style="height:65%;background:var(--accent);opacity:.7;"></div>
+              <div class="mock-bar" style="height:100%;background:var(--green);opacity:.7;"></div>
+              <div class="mock-bar" style="height:102%;background:var(--orange);opacity:.7;"></div>
+              <div class="mock-bar" style="height:0%;background:var(--border);"></div>
+              <div class="mock-bar" style="height:100%;background:var(--green);opacity:.7;"></div>
+              <div class="mock-bar" style="height:105%;background:var(--orange);opacity:.7;"></div>
+              <div class="mock-bar" style="height:0%;background:var(--border);"></div>
+              <div class="mock-bar" style="height:100%;background:var(--green);opacity:.7;"></div>
+            </div>
+          </div>
+          <div class="mock-table-wrap">
+            <table class="mock-table">
+              <thead>
+                <tr><th>Module</th><th>MH.G</th><th>Avancement</th><th>Statut</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Métier & formation</td>
+                  <td>10h</td>
+                  <td><div class="progress-mini"><div class="progress-track"><div class="progress-fill" style="width:100%;background:var(--green);"></div></div>100%</div></td>
+                  <td><span class="badge badge-green">✓ OK</span></td>
+                </tr>
+                <tr>
+                  <td>Hygiène Sécurité</td>
+                  <td>20h</td>
+                  <td><div class="progress-mini"><div class="progress-track"><div class="progress-fill" style="width:100%;background:var(--green);"></div></div>100%</div></td>
+                  <td><span class="badge badge-green">✓ OK</span></td>
+                </tr>
+                <tr>
+                  <td>Canalisations élect.</td>
+                  <td>40h</td>
+                  <td><div class="progress-mini"><div class="progress-track"><div class="progress-fill" style="width:100%;background:var(--orange);"></div></div>102%</div></td>
+                  <td><span class="badge badge-orange">⚠ +2%</span></td>
+                </tr>
+                <tr>
+                  <td>Luminaires & cmdes</td>
+                  <td>80h</td>
+                  <td><div class="progress-mini"><div class="progress-track"><div class="progress-fill" style="width:65%;background:var(--accent);"></div></div>65%</div></td>
+                  <td><span class="badge badge-blue">En cours</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <h2>Écran 2 — Vue stagiaire</h2>
+      <div class="screen-frame">
+        <div class="screen-bar">
+          <span class="dot dot-red"></span>
+          <span class="dot dot-yellow"></span>
+          <span class="dot dot-green"></span>
+          <span style="margin-left:8px; font-size:11px;">ofppt-manager.ma/groupes/EB101/stagiaires/2009052100036</span>
+        </div>
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:10px;">
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+            <div style="width:40px;height:40px;border-radius:50%;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;color:var(--accent);">AH</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;">ABBID HAMZA</div>
+              <div style="font-size:11px;color:var(--ink-4);">CEF: 2009052100036 · EB101 · 1ère Année</div>
+            </div>
+            <div style="margin-left:auto;">
+              <span class="badge badge-green">Statut: Actif</span>
+            </div>
+          </div>
+          <div class="mock-table-wrap">
+            <table class="mock-table">
+              <thead>
+                <tr><th>Module</th><th>CC /20</th><th>EFM /40</th><th>Moy Off. /20</th><th>Statut</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>M101 — Métier & formation</td>
+                  <td>18.00</td>
+                  <td>29.00</td>
+                  <td><strong>15.67</strong></td>
+                  <td><span class="badge badge-green">✓ Validé</span></td>
+                </tr>
+                <tr>
+                  <td>M102 — Hygiène Sécurité</td>
+                  <td>12.00</td>
+                  <td>21.00</td>
+                  <td><strong>11.00</strong></td>
+                  <td><span class="badge badge-green">✓ Validé</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 09 COMPOSANTS ═══ -->
+    <section class="section" id="components">
+      <div class="section-header">
+        <span class="section-num">09</span>
+        <h1 class="section-title">Composants UI</h1>
+      </div>
+
+      <div class="comp-block">
+        <div class="comp-header">
+          <span class="comp-name">ProgressGauge</span>
+          <span class="badge badge-blue">React</span>
+        </div>
+        <div class="comp-body">
+          <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:12px;">Affiche la comparaison taux réel / taux théorique avec un indicateur d'écart coloré.</p>
+          <div class="prop-row"><span class="prop-name">tauxReel</span><span class="prop-type">number</span><span class="prop-desc">0–100, taux réel en %</span></div>
+          <div class="prop-row"><span class="prop-name">tauxTheorique</span><span class="prop-type">number</span><span class="prop-desc">0–100, taux théorique en %</span></div>
+          <div class="prop-row"><span class="prop-name">ecart</span><span class="prop-type">number</span><span class="prop-desc">Différence réel - théorique</span></div>
+          <div class="prop-row"><span class="prop-name">showProjection</span><span class="prop-type">boolean</span><span class="prop-desc">Afficher la date de fin estimée</span></div>
+        </div>
+      </div>
+
+      <div class="comp-block">
+        <div class="comp-header">
+          <span class="comp-name">AlertBadge</span>
+          <span class="badge badge-blue">React</span>
+        </div>
+        <div class="comp-body">
+          <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:12px;">Badge d'alerte avec niveau et message. Gestion rouge / orange / vert.</p>
+          <div class="prop-row"><span class="prop-name">level</span><span class="prop-type">"critique" | "warning" | "ok"</span><span class="prop-desc">Détermine la couleur</span></div>
+          <div class="prop-row"><span class="prop-name">message</span><span class="prop-type">string</span><span class="prop-desc">Texte de l'alerte</span></div>
+          <div class="prop-row"><span class="prop-name">entity</span><span class="prop-type">"stagiaire" | "groupe"</span><span class="prop-desc">Entité concernée</span></div>
+        </div>
+      </div>
+
+      <div class="comp-block">
+        <div class="comp-header">
+          <span class="comp-name">ImportDropzone</span>
+          <span class="badge badge-blue">React</span>
+        </div>
+        <div class="comp-body">
+          <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:12px;">Zone de dépôt drag &amp; drop pour upload des fichiers. Auto-détection du type.</p>
+          <div class="prop-row"><span class="prop-name">acceptedTypes</span><span class="prop-type">string[]</span><span class="prop-desc">["xlsx", "pdf"]</span></div>
+          <div class="prop-row"><span class="prop-name">onImportSuccess</span><span class="prop-type">(result) =&gt; void</span><span class="prop-desc">Callback après import réussi</span></div>
+          <div class="prop-row"><span class="prop-name">anneeFormId</span><span class="prop-type">string</span><span class="prop-desc">Année de formation cible</span></div>
+        </div>
+      </div>
+
+      <div class="comp-block">
+        <div class="comp-header">
+          <span class="comp-name">NoteTable</span>
+          <span class="badge badge-blue">React</span>
+        </div>
+        <div class="comp-body">
+          <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:12px;">Tableau de notes avec tri, filtrage, mise en valeur des absences et alertes.</p>
+          <div class="prop-row"><span class="prop-name">notes</span><span class="prop-type">NoteModule[]</span><span class="prop-desc">Liste des notes avec stagiaires</span></div>
+          <div class="prop-row"><span class="prop-name">moduleName</span><span class="prop-type">string</span><span class="prop-desc">Intitulé du module affiché</span></div>
+          <div class="prop-row"><span class="prop-name">showNormalisee</span><span class="prop-type">boolean</span><span class="prop-desc">Afficher colonne moy. normalisée</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 10 DESIGN SYSTEM ═══ -->
+    <section class="section" id="design">
+      <div class="section-header">
+        <span class="section-num">10</span>
+        <h1 class="section-title">Design system</h1>
+      </div>
+
+      <h2>Palette couleurs sémantiques</h2>
+      <div class="card">
+        <div class="color-swatch">
+          <div class="swatch" style="background:#0f9960;"></div>
+          <div class="swatch-name">Succès</div>
+          <div class="swatch-hex">#0f9960</div>
+          <div class="swatch-use">À jour, validé, taux normal</div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch" style="background:#1d6ef5;"></div>
+          <div class="swatch-name">Info</div>
+          <div class="swatch-hex">#1d6ef5</div>
+          <div class="swatch-use">En cours, liens, actions primaires</div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch" style="background:#e07b2a;"></div>
+          <div class="swatch-name">Attention</div>
+          <div class="swatch-hex">#e07b2a</div>
+          <div class="swatch-use">Warning, dépassement léger, à surveiller</div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch" style="background:#d63b3b;"></div>
+          <div class="swatch-name">Critique</div>
+          <div class="swatch-hex">#d63b3b</div>
+          <div class="swatch-use">Alerte rouge, retard, échec module</div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch" style="background:#6b46e0;"></div>
+          <div class="swatch-name">Analytique</div>
+          <div class="swatch-hex">#6b46e0</div>
+          <div class="swatch-use">Projections, données calculées</div>
+        </div>
+      </div>
+
+      <h2>Typographie</h2>
+      <div class="card">
+        <div class="tech-row">
+          <div class="tech-name">Sora</div>
+          <div class="tech-desc">Police principale — titres, labels, corps de texte. Poids : 300, 400, 500, 600</div>
+          <span class="badge badge-blue">Display</span>
+        </div>
+        <div class="tech-row">
+          <div class="tech-name">IBM Plex Mono</div>
+          <div class="tech-desc">Données numériques, codes, CEF, valeurs de taux, formules</div>
+          <span class="badge badge-orange">Mono</span>
+        </div>
+      </div>
+
+      <h2>Breakpoints responsive</h2>
+      <div class="card" style="font-size:12.5px;color:var(--ink-3);">
+        <div style="padding:8px 0; border-bottom:1px solid var(--border);"><span class="bp-tag">sm: 640px</span> Vue mobile — Navigation collapse, colonnes empilées</div>
+        <div style="padding:8px 0; border-bottom:1px solid var(--border);"><span class="bp-tag">md: 768px</span> Tablette — Sidebar masquée, grille 2 colonnes</div>
+        <div style="padding:8px 0;"><span class="bp-tag">lg: 1024px</span> Desktop — Sidebar visible, grille 4 colonnes KPI</div>
+      </div>
+
+      <h2>Animations (Framer Motion)</h2>
+      <div class="rule-box">
+        <h4>Transitions recommandées</h4>
+        <ul class="rule-list">
+          <li>Entrée de page : <code>fadeIn + slideUp</code>, durée 300ms, easing <code>easeOut</code></li>
+          <li>KPI counter : <code>animateValue</code> 800ms au chargement</li>
+          <li>Alertes : <code>shake</code> léger pour alertes critiques (50ms × 3)</li>
+          <li>Barres de progression : <code>scaleX</code> de 0 à valeur finale, 600ms</li>
+          <li>Import success : <code>confetti + bounce</code> du bouton</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ═══ 11 API ═══ -->
+    <section class="section" id="api">
+      <div class="section-header">
+        <span class="section-num">11</span>
+        <h1 class="section-title">Endpoints REST</h1>
+      </div>
+
+      <h2>Import</h2>
+      <div class="api-route open">
+        <div class="api-route-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="method method-post">POST</span>
+          <span class="api-path">/api/import</span>
+          <span class="api-desc">Upload + traitement fichier</span>
+        </div>
+        <div class="api-body">
+          Body: multipart/form-data { file, anneeFormId, type: "etat" | "calendrier" | "pv_efm" }<br>
+          Returns: { success, imported: number, warnings: string[], errors: string[] }
+        </div>
+      </div>
+
+      <h2>Groupes</h2>
+      <div class="api-route">
+        <div class="api-route-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="method method-get">GET</span>
+          <span class="api-path">/api/groupes</span>
+          <span class="api-desc">Liste tous les groupes actifs</span>
+        </div>
+        <div class="api-body">
+          Query: ?anneeFormId, ?filiereId, ?statut<br>
+          Returns: Groupe[] avec taux théorique + réel calculés
+        </div>
+      </div>
+      <div class="api-route">
+        <div class="api-route-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="method method-get">GET</span>
+          <span class="api-path">/api/groupes/[id]/avancement</span>
+          <span class="api-desc">Avancement par module d'un groupe</span>
+        </div>
+        <div class="api-body">
+          Returns: { modules: Avancement[], tauxTheorique, ecartGlobal, projection: { dateFin, retardJours } }
+        </div>
+      </div>
+
+      <h2>Stagiaires</h2>
+      <div class="api-route">
+        <div class="api-route-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="method method-get">GET</span>
+          <span class="api-path">/api/stagiaires/[cef]/notes</span>
+          <span class="api-desc">Toutes les notes d'un stagiaire</span>
+        </div>
+        <div class="api-body">
+          Returns: { stagiaire, notes: NoteModule[], alertes: Alert[], moyenneGenerale }
+        </div>
+      </div>
+      <div class="api-route">
+        <div class="api-route-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="method method-get">GET</span>
+          <span class="api-path">/api/groupes/[id]/stagiaires</span>
+          <span class="api-desc">Classement stagiaires d'un groupe</span>
+        </div>
+        <div class="api-body">
+          Returns: Stagiaire[] triés par moyenne, avec alertes et absences incluses
+        </div>
+      </div>
+
+      <h2>Dashboard</h2>
+      <div class="api-route">
+        <div class="api-route-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="method method-get">GET</span>
+          <span class="api-path">/api/dashboard</span>
+          <span class="api-desc">KPIs globaux pour la page d'accueil</span>
+        </div>
+        <div class="api-body">
+          Returns: { groupesActifs, tauxMoyen, alertesCount, modulesValides, topAlerts: Alert[] }
+        </div>
+      </div>
+      <div class="api-route">
+        <div class="api-route-header" onclick="this.parentElement.classList.toggle('open')">
+          <span class="method method-get">GET</span>
+          <span class="api-path">/api/alertes</span>
+          <span class="api-desc">Toutes les alertes actives</span>
+        </div>
+        <div class="api-body">
+          Query: ?niveau=critique|warning, ?entity=stagiaire|groupe<br>
+          Returns: Alert[] { level, message, entity, entityId, createdAt }
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 12 EXTENSIONS ═══ -->
+    <section class="section" id="extensions">
+      <div class="section-header">
+        <span class="section-num">12</span>
+        <h1 class="section-title">Extensions futures</h1>
+      </div>
+
+      <div class="card-grid">
+        <div class="card">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--ink-4);margin-bottom:8px;">V2.0</div>
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;">IA prédictive</h3>
+          <p style="font-size:12.5px;">Prédiction du risque d'échec par stagiaire basée sur historique CC + assiduité. Modèle simple de régression logistique.</p>
+        </div>
+        <div class="card">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--ink-4);margin-bottom:8px;">V2.0</div>
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;">Notifications</h3>
+          <p style="font-size:12.5px;">Alertes email automatiques aux formateurs dès qu'un retard pédagogique est détecté ou qu'un stagiaire passe sous 10/20.</p>
+        </div>
+        <div class="card">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--ink-4);margin-bottom:8px;">V2.5</div>
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;">Export PDF</h3>
+          <p style="font-size:12.5px;">Génération de rapports pédagogiques PDF avec graphiques, par groupe ou par stagiaire, pour soumission à la direction régionale.</p>
+        </div>
+        <div class="card">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--ink-4);margin-bottom:8px;">V3.0</div>
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;">Multi-établissements</h3>
+          <p style="font-size:12.5px;">Extension à tous les établissements de la Direction Régionale Oriental. Vue agrégée pour le Directeur Régional.</p>
+        </div>
+        <div class="card">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--ink-4);margin-bottom:8px;">V2.5</div>
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;">Emploi du temps</h3>
+          <p style="font-size:12.5px;">Gestion du planning hebdomadaire des formateurs, intégration avec le calendrier OFPPT importé.</p>
+        </div>
+        <div class="card">
+          <div style="font-size:11px;font-family:var(--mono);color:var(--ink-4);margin-bottom:8px;">V2.0</div>
+          <h3 style="margin:0 0 8px;font-size:13px;font-weight:600;">Source CSV</h3>
+          <p style="font-size:12.5px;">Support de fichiers CSV en plus de Excel, avec mapping automatique des colonnes via détection d'en-têtes.</p>
+        </div>
+      </div>
+
+      <div class="notice notice-info">
+        <span class="notice-icon">ℹ</span>
+        <div><strong>Architecture extensible :</strong> La structure modulaire (core / import / analytics / ui) permet d'ajouter de nouvelles sources de données et indicateurs sans refactoring majeur. Chaque parser est une fonction pure sans effets de bord.</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div style="font-size:11px;color:var(--ink-4);font-family:var(--mono);text-align:center;padding:16px 0;">
+        OFPPT Manager — Spécifications Techniques v1.0 · Année 2025/2026<br>
+        Centre de Qualification Professionnelle Sammara — Direction Régionale Oriental
+      </div>
+    </section>
+
+  </div><!-- /content -->
+</main>
+</div><!-- /wrapper -->
+
+<script>
+  // Smooth scroll + active nav
+  document.querySelectorAll('.nav-item').forEach(link => {
+    link.addEventListener('click', e => {
+      const href = link.getAttribute('href');
+      if (!href || !href.startsWith('#')) return;
+      e.preventDefault();
+      document.querySelectorAll('.nav-item').forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+      const el = document.querySelector(href);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  // Intersection observer for active nav highlight
+  const sections = document.querySelectorAll('.section');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        document.querySelectorAll('.nav-item').forEach(l => {
+          l.classList.toggle('active', l.getAttribute('href') === '#' + id);
+        });
+      }
+    });
+  }, { threshold: 0.2, rootMargin: '-80px 0px -60% 0px' });
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>
