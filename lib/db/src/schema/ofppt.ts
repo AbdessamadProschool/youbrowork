@@ -120,6 +120,15 @@ export const calendriersTable = pgTable("calendriers", {
     .defaultNow(),
 });
 
+export const stagiaireDisciplinesTable = pgTable("stagiaire_disciplines", {
+  id: text("id").primaryKey(),
+  cef: text("cef").notNull(),
+  absencesCountAtValidation: integer("absences_count_at_validation").notNull(),
+  validatedAt: timestamp("validated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const importLogsTable = pgTable("import_logs", {
   id: text("id").primaryKey(),
   filename: text("filename").notNull(),
@@ -144,3 +153,4 @@ export type NoteModule = typeof notesModuleTable.$inferSelect;
 export type Calendrier = typeof calendriersTable.$inferSelect;
 export type ImportLog = typeof importLogsTable.$inferSelect;
 export type Module = typeof modulesTable.$inferSelect;
+export type StagiaireDiscipline = typeof stagiaireDisciplinesTable.$inferSelect;

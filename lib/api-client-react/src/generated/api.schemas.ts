@@ -12,6 +12,7 @@ export interface HealthStatus {
 export type AlerteNiveau = (typeof AlerteNiveau)[keyof typeof AlerteNiveau];
 
 export const AlerteNiveau = {
+  disciplinaire: "disciplinaire",
   critique: "critique",
   warning: "warning",
   anomalie: "anomalie",

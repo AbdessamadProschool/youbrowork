@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { eq, ilike, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { stagiairesTable, notesModuleTable, groupesTable } from "@workspace/db";
+import { stagiairesTable, notesModuleTable, groupesTable, stagiaireDisciplinesTable } from "@workspace/db";
 import {
   GetStagiairesResponse,
   GetStagiaireNotesResponse,
 } from "@workspace/api-zod";
-import { computeAlertesForStagiaire } from "../lib/alertes";
+import { computeAlertesForStagiaire, computeDisciplinaireAlert } from "../lib/alertes";
+import { randomUUID } from "crypto";
 
 const router = Router();
 
@@ -164,6 +165,34 @@ router.get("/stagiaires/:cef/notes", async (req, res): Promise<void> => {
       moyenneGenerale,
     })
   );
+});
+
+/**
+ * POST /stagiaires/:cef/discipline
+ * Validate (reset) disciplinary counter for a stagiaire.
+ * Stores current total absences as the "validated" count so the counter resets to 0.
+ */
+router.post("/stagiaires/:cef/discipline", async (req, res): Promise<void> => {
+  const cef = Array.isArray(req.params.cef) ? req.params.cef[0] : req.params.cef;
+
+  const [stagiaire] = await db.select().from(stagiairesTable).where(eq(stagiairesTable.cef, cef));
+  if (!stagiaire) {
+    res.status(404).json({ error: "Stagiaire not found" });
+    return;
+  }
+
+  // Count current total EFM absences
+  const notes = await db.select().from(notesModuleTable).where(eq(notesModuleTable.cef, cef));
+  const totalAbsences = notes.filter((n) => n.efmStatut === "ABSENT").length;
+
+  // Insert validation record
+  await db.insert(stagiaireDisciplinesTable).values({
+    id: randomUUID(),
+    cef,
+    absencesCountAtValidation: totalAbsences,
+  });
+
+  res.json({ success: true, cef, absencesCountAtValidation: totalAbsences });
 });
 
 export default router;

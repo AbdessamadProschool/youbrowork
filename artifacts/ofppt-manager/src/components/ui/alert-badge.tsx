@@ -8,6 +8,8 @@ const alertBadgeVariants = cva(
   {
     variants: {
       niveau: {
+        disciplinaire:
+          "border-red-600 bg-red-600 text-white hover:bg-red-700",
         critique:
           "border-transparent bg-destructive/10 text-destructive hover:bg-destructive/20",
         warning:
@@ -33,8 +35,9 @@ export interface AlertBadgeProps
 
 function AlertBadge({ className, niveau, label, dot = true, children, ...props }: AlertBadgeProps) {
   let dotColor = "bg-info";
-  if (niveau === "critique") dotColor = "bg-destructive";
-  if (niveau === "warning" || niveau === "anomalie") dotColor = "bg-warning";
+  if (niveau === "disciplinaire") dotColor = "bg-white";
+  else if (niveau === "critique") dotColor = "bg-destructive";
+  else if (niveau === "warning" || niveau === "anomalie") dotColor = "bg-warning";
   
   return (
     <Badge className={cn(alertBadgeVariants({ niveau }), className, "rounded-md px-2 py-0.5 text-xs font-mono")} {...props} variant="outline">

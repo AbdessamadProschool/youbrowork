@@ -6,11 +6,13 @@ import {
   calendriersTable,
   groupesTable,
   stagiairesTable,
+  stagiaireDisciplinesTable,
 } from "@workspace/db";
 import { GetAlertesResponse } from "@workspace/api-zod";
 import {
   computeAlertesForGroupe,
   computeAlertesForStagiaire,
+  computeDisciplinaireAlert,
 } from "../lib/alertes";
 import { sql } from "drizzle-orm";
 
@@ -35,6 +37,9 @@ router.get("/alertes", async (req, res): Promise<void> => {
     .then((r) => r[0] ?? null);
   const tauxTheorique = calendrier ? calendrier.tauxTheorique : null;
 
+  // Load last discipline validation per stagiaire
+  const disciplines = await db.select().from(stagiaireDisciplinesTable);
+
   const allAlertes: ReturnType<typeof computeAlertesForStagiaire> = [];
 
   if (!entity || entity === "stagiaire") {
@@ -49,6 +54,21 @@ router.get("/alertes", async (req, res): Promise<void> => {
           efmStatut: n.efmStatut,
           moyenneOff: n.moyenneOff,
         }));
+
+      // Disciplinary alert: count EFM absences vs last validation
+      const totalAbsences = sNotes.filter((n) => n.efmStatut === "ABSENT").length;
+      const lastDiscipline = disciplines
+        .filter((d) => d.cef === s.cef)
+        .sort((a, b) => new Date(b.validatedAt).getTime() - new Date(a.validatedAt).getTime())[0];
+      const absencesValidated = lastDiscipline?.absencesCountAtValidation ?? 0;
+
+      const discAlerte = computeDisciplinaireAlert(
+        s.cef,
+        `${s.prenom} ${s.nom}`,
+        totalAbsences,
+        absencesValidated
+      );
+      if (discAlerte) allAlertes.push(discAlerte);
 
       const alertes = computeAlertesForStagiaire(
         s.cef,
@@ -92,6 +112,10 @@ router.get("/alertes", async (req, res): Promise<void> => {
       allAlertes.push(...alertes);
     }
   }
+
+  // Sort: disciplinaire first, then critique, then warning, then anomalie
+  const niveauOrder: Record<string, number> = { disciplinaire: 0, critique: 1, warning: 2, anomalie: 3 };
+  allAlertes.sort((a, b) => (niveauOrder[a.niveau] ?? 9) - (niveauOrder[b.niveau] ?? 9));
 
   let filtered = allAlertes;
   if (niveau) {

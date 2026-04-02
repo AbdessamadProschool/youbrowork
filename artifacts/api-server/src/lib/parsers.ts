@@ -107,10 +107,15 @@ export function parseEtatXlsx(buffer: Buffer): EtatRow[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Calendrier (Excel) — reads "Taux d'AP objectif" column directly
+// Calendrier (Excel) — counts "1" cells per CDJ row vs date_ref
+// Formula:
+//   date_ref      = min(today, last_calendar_date)
+//   jours_realises = COUNT(cell == 1 AND date <= date_ref)
+//   total_jours    = COUNT(all cells == 1)
+//   taux_theorique = jours_realises / total_jours
 // ─────────────────────────────────────────────────────────────────────────────
 export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
-  const wb = XLSX.read(buffer, { type: "buffer" });
+  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
   const sheetName =
     wb.SheetNames.find(
@@ -122,78 +127,74 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
 
   logger.info({ sheetName, allSheets: wb.SheetNames }, "Calendrier sheet selected");
 
-  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
-    header: 1,
-    defval: null,
-    raw: true,
-  }) as unknown[][];
+  const wsRef = ws["!ref"];
+  if (!wsRef) return [];
+  const range = XLSX.utils.decode_range(wsRef);
 
-  logger.info({ totalRows: rawRows.length }, "Calendrier raw rows");
+  // ── Step 1: Find the date header row
+  // Look for the first row (rows 0-15) that has ≥5 date-type cells (type 'd' or numeric serial > 40000)
+  let dateRowIdx = -1;
+  const colDates = new Map<number, Date>(); // column index → JS Date
 
-  // ── Step 1: Find all columns whose header contains "Taux" + "AP" + "objectif"
-  // Scan rows 0-10 for header cells
-  const tauxApColumns: number[] = [];
-  for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
-    const row = rawRows[r] as unknown[];
-    for (let c = 0; c < row.length; c++) {
-      const cell = String(row[c] ?? "").toLowerCase();
-      if (
-        cell.includes("taux") &&
-        (cell.includes("ap") || cell.includes("a.p")) &&
-        cell.includes("objectif")
+  for (let R = 0; R <= Math.min(range.e.r, 15); R++) {
+    const tempDates = new Map<number, Date>();
+    for (let C = 1; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      if (!cell) continue;
+
+      let d: Date | null = null;
+      if (cell.t === "d" && cell.v instanceof Date) {
+        d = cell.v;
+      } else if (
+        cell.t === "n" &&
+        typeof cell.v === "number" &&
+        cell.v > 40000 &&
+        cell.v < 60000
       ) {
-        tauxApColumns.push(c);
-        logger.info({ rowIdx: r, colIdx: c, cell }, "Found Taux AP objectif column");
+        // Excel serial date: days since 1900-01-01 (with 1900 leap-year bug)
+        const utcMs = (cell.v - 25569) * 86400 * 1000;
+        d = new Date(utcMs);
+      }
+      if (d && !isNaN(d.getTime())) {
+        tempDates.set(C, d);
       }
     }
-  }
-
-  // Also accept column headers that contain just "objectif" as fallback
-  if (tauxApColumns.length === 0) {
-    for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
-      const row = rawRows[r] as unknown[];
-      for (let c = 0; c < row.length; c++) {
-        const cell = String(row[c] ?? "").toLowerCase();
-        if (cell.includes("objectif")) {
-          tauxApColumns.push(c);
-          logger.info({ rowIdx: r, colIdx: c, cell }, "Found objectif column (fallback)");
-        }
-      }
+    if (tempDates.size >= 5) {
+      dateRowIdx = R;
+      for (const [c, d] of tempDates) colDates.set(c, d);
+      break;
     }
   }
 
-  logger.info({ tauxApColumns }, "All Taux AP objectif column indices found");
-
-  // ── Step 1b: Log values at each candidate column for the first CDJ row (idx 3+)
-  // We choose the column whose CDJ-row values fall in a meaningful range [5%, 100%].
-  // Formula-based columns are cached at file-save time and may be near 0%.
-  // Reference columns (e.g., last completed year) have stable values in [30%, 100%].
-  let tauxCol = -1;
-  for (const colIdx of tauxApColumns) {
-    let validCount = 0;
-    for (let r = 3; r < Math.min(rawRows.length, 20); r++) {
-      const val = rawRows[r][colIdx];
-      if (typeof val === "number" && val >= 0.05 && val <= 1.0) validCount++;
-    }
-    logger.info({ colIdx, validCount }, "Taux AP column candidate check");
-    if (validCount >= 2) {
-      tauxCol = colIdx;
-      break; // take the first (leftmost) column with ≥2 valid values
-    }
-  }
-  // Fallback: try all columns in order, smallest index first
-  if (tauxCol < 0 && tauxApColumns.length > 0) {
-    tauxCol = Math.min(...tauxApColumns);
-  }
-
-  logger.info({ tauxCol }, "Selected Taux AP objectif column");
-
-  if (tauxCol < 0) {
-    logger.warn("No 'Taux d\\'AP objectif' column found in calendar");
+  if (dateRowIdx < 0 || colDates.size === 0) {
+    logger.warn(
+      { sheetName },
+      "No date row found in calendar — cannot compute taux théorique from cell counts"
+    );
     return [];
   }
 
-  // ── Step 2: Find CDJ rows (rows where column A matches 1A-CDJ or 2A-CDJ)
+  const allDateValues = [...colDates.values()];
+  const lastCalDate = allDateValues.reduce((a, b) => (a > b ? a : b));
+
+  // date_ref = min(today, last calendar date)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  lastCalDate.setHours(0, 0, 0, 0);
+  const dateRef = today <= lastCalDate ? today : lastCalDate;
+
+  logger.info(
+    {
+      dateRowIdx,
+      dateColumnCount: colDates.size,
+      firstDate: allDateValues[0].toISOString().split("T")[0],
+      lastDate: lastCalDate.toISOString().split("T")[0],
+      dateRef: dateRef.toISOString().split("T")[0],
+    },
+    "Date row detected"
+  );
+
   const now = new Date();
   const anneeFormation =
     now.getMonth() >= 8
@@ -202,51 +203,61 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
 
   const results: CalendrierResult[] = [];
 
-  // Log all labeled rows for debugging
-  const labeledRows: { idx: number; label: string; tauxVal: unknown }[] = [];
-  for (let r = 0; r < rawRows.length; r++) {
-    const label = String(rawRows[r][0] ?? "").trim();
-    if (label) {
-      labeledRows.push({ idx: r, label, tauxVal: rawRows[r][tauxCol] });
-    }
-  }
-  logger.info({ labeledRows }, "All labeled rows with Taux AP values");
+  // ── Step 2: For each CDJ row, count formation days (cells == 1)
+  for (let R = 0; R <= range.e.r; R++) {
+    if (R === dateRowIdx) continue;
 
-  for (const { label, idx, tauxVal } of labeledRows) {
-    // Match 1A-CDJ or 2A-CDJ patterns
+    const cellA = ws[XLSX.utils.encode_cell({ r: R, c: 0 })];
+    const label = String(cellA?.v ?? "").trim();
     if (!/^[12]A.?CDJ/i.test(label)) continue;
 
-    // Parse the tauxTheorique value
-    let tauxTheorique = 0;
-    if (typeof tauxVal === "number" && !isNaN(tauxVal)) {
-      // Excel percentage is stored as decimal (0.68 = 68%)
-      tauxTheorique = tauxVal <= 1 ? tauxVal : tauxVal / 100;
-    } else if (typeof tauxVal === "string" && tauxVal.trim()) {
-      const parsed = parseFloat(tauxVal.replace("%", "").replace(",", ".").trim());
-      if (!isNaN(parsed)) {
-        tauxTheorique = parsed > 1 ? parsed / 100 : parsed;
-      }
+    let totalJours = 0;
+    let joursRealises = 0;
+    const jourDetails: JourDetail[] = [];
+
+    for (const [C, cellDate] of colDates) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      const val = cell?.v;
+
+      // A formation day is marked with value 1 (numeric) or "1" (string)
+      const isFormation = val === 1 || val === "1";
+      if (!isFormation) continue;
+
+      totalJours++;
+
+      const d = new Date(cellDate);
+      d.setHours(0, 0, 0, 0);
+      if (d <= dateRef) joursRealises++;
+
+      jourDetails.push({
+        date: cellDate.toISOString().split("T")[0],
+        statut: "FORMATION",
+      });
     }
+
+    const tauxTheorique =
+      totalJours > 0 ? Math.min(joursRealises / totalJours, 1) : 0;
 
     logger.info(
       {
         label,
-        rowIdx: idx,
-        tauxCol,
-        tauxVal,
+        totalJours,
+        joursRealises,
         tauxTheorique: (tauxTheorique * 100).toFixed(1) + "%",
+        dateRef: dateRef.toISOString().split("T")[0],
       },
-      "CDJ row parsed"
+      "CDJ row taux computed"
     );
 
     results.push({
       typeCalendrier: label,
       anneeFormation,
-      totalJours: 0,      // not computed from dates — using pre-computed value
-      joursRealises: 0,
+      totalJours,
+      joursRealises,
       tauxTheorique,
-      dateReference: now,
-      jourDetails: [],
+      dateReference: dateRef,
+      jourDetails,
     });
   }
 

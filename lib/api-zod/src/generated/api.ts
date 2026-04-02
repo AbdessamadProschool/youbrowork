@@ -28,7 +28,7 @@ export const GetDashboardResponse = zod.object({
   topAlerts: zod.array(
     zod.object({
       id: zod.string(),
-      niveau: zod.enum(["critique", "warning", "anomalie"]),
+      niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
       message: zod.string(),
       entity: zod.enum(["stagiaire", "groupe"]),
       entityId: zod.string(),
@@ -199,7 +199,7 @@ export const GetGroupeStagiairesResponseItem = zod.object({
   alertes: zod.array(
     zod.object({
       id: zod.string(),
-      niveau: zod.enum(["critique", "warning", "anomalie"]),
+      niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
       message: zod.string(),
       entity: zod.enum(["stagiaire", "groupe"]),
       entityId: zod.string(),
@@ -248,7 +248,7 @@ export const GetStagiaireNotesResponse = zod.object({
   alertes: zod.array(
     zod.object({
       id: zod.string(),
-      niveau: zod.enum(["critique", "warning", "anomalie"]),
+      niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
       message: zod.string(),
       entity: zod.enum(["stagiaire", "groupe"]),
       entityId: zod.string(),
@@ -294,7 +294,7 @@ export const GetStagiairesResponseItem = zod.object({
   alertes: zod.array(
     zod.object({
       id: zod.string(),
-      niveau: zod.enum(["critique", "warning", "anomalie"]),
+      niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
       message: zod.string(),
       entity: zod.enum(["stagiaire", "groupe"]),
       entityId: zod.string(),
@@ -329,7 +329,7 @@ export const GetAlertesQueryParams = zod.object({
 
 export const GetAlertesResponseItem = zod.object({
   id: zod.string(),
-  niveau: zod.enum(["critique", "warning", "anomalie"]),
+  niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
   message: zod.string(),
   entity: zod.enum(["stagiaire", "groupe"]),
   entityId: zod.string(),

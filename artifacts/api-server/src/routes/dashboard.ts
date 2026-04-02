@@ -6,9 +6,10 @@ import {
   notesModuleTable,
   importLogsTable,
   stagiairesTable,
+  stagiaireDisciplinesTable,
 } from "@workspace/db";
 import { GetDashboardResponse } from "@workspace/api-zod";
-import { computeAlertesForGroupe, computeAlertesForStagiaire } from "../lib/alertes";
+import { computeAlertesForGroupe, computeAlertesForStagiaire, computeDisciplinaireAlert } from "../lib/alertes";
 import { getCalendrierForGroupe } from "../lib/calendrier-helper";
 import { sql } from "drizzle-orm";
 
@@ -82,6 +83,9 @@ router.get("/dashboard", async (req, res): Promise<void> => {
     allAlertes.push(...gAlertes);
   }
 
+  // Load discipline validations
+  const disciplines = await db.select().from(stagiaireDisciplinesTable);
+
   // Stagiaire alerts (same logic as /api/alertes route)
   for (const s of stagiaires) {
     const sNotes = notes
@@ -94,6 +98,16 @@ router.get("/dashboard", async (req, res): Promise<void> => {
         efmStatut: n.efmStatut,
         moyenneOff: n.moyenneOff,
       }));
+
+    // Disciplinary alert first
+    const totalAbsences = sNotes.filter((n) => n.efmStatut === "ABSENT").length;
+    const lastDiscipline = disciplines
+      .filter((d) => d.cef === s.cef)
+      .sort((a, b) => new Date(b.validatedAt).getTime() - new Date(a.validatedAt).getTime())[0];
+    const absencesValidated = lastDiscipline?.absencesCountAtValidation ?? 0;
+    const discAlerte = computeDisciplinaireAlert(s.cef, `${s.prenom} ${s.nom}`, totalAbsences, absencesValidated);
+    if (discAlerte) allAlertes.push(discAlerte);
+
     const sAlertes = computeAlertesForStagiaire(
       s.cef,
       `${s.prenom} ${s.nom}`,
@@ -101,6 +115,10 @@ router.get("/dashboard", async (req, res): Promise<void> => {
     );
     allAlertes.push(...sAlertes);
   }
+
+  // Sort: disciplinaire first
+  const niveauOrder: Record<string, number> = { disciplinaire: 0, critique: 1, warning: 2, anomalie: 3 };
+  allAlertes.sort((a, b) => (niveauOrder[a.niveau] ?? 9) - (niveauOrder[b.niveau] ?? 9));
 
   const alertesCount = allAlertes.length;
   const alertesCritiques = allAlertes.filter((a) => a.niveau === "critique").length;

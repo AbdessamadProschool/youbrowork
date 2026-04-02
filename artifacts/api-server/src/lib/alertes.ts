@@ -2,12 +2,38 @@ import { randomUUID } from "crypto";
 
 export interface AlerteItem {
   id: string;
-  niveau: "critique" | "warning" | "anomalie";
+  niveau: "disciplinaire" | "critique" | "warning" | "anomalie";
   message: string;
   entity: "stagiaire" | "groupe";
   entityId: string;
   entityLabel: string;
   createdAt: string;
+}
+
+// Threshold for disciplinary alert (number of EFM absences)
+export const ABSENCE_DISCIPLINAIRE_SEUIL = 3;
+
+/**
+ * Compute disciplinary alerts for a stagiaire.
+ * Returns a "disciplinaire" alert if (totalAbsences - absencesValidated) >= 3.
+ */
+export function computeDisciplinaireAlert(
+  cef: string,
+  nomComplet: string,
+  totalAbsences: number,
+  absencesValidated: number
+): AlerteItem | null {
+  const remaining = totalAbsences - absencesValidated;
+  if (remaining < ABSENCE_DISCIPLINAIRE_SEUIL) return null;
+  return {
+    id: randomUUID(),
+    niveau: "disciplinaire",
+    message: `${remaining} absences EFM non justifiées — ACTION DISCIPLINAIRE REQUISE`,
+    entity: "stagiaire",
+    entityId: cef,
+    entityLabel: nomComplet,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 export function computeAlertesForStagiaire(
