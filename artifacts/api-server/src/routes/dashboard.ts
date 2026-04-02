@@ -5,9 +5,10 @@ import {
   avancementsTable,
   notesModuleTable,
   importLogsTable,
+  stagiairesTable,
 } from "@workspace/db";
 import { GetDashboardResponse } from "@workspace/api-zod";
-import { computeAlertesForGroupe } from "../lib/alertes";
+import { computeAlertesForGroupe, computeAlertesForStagiaire } from "../lib/alertes";
 import { getCalendrierForGroupe } from "../lib/calendrier-helper";
 import { sql } from "drizzle-orm";
 
@@ -31,29 +32,29 @@ router.get("/dashboard", async (req, res): Promise<void> => {
 
   const avancements = await db.select().from(avancementsTable);
   const notes = await db.select().from(notesModuleTable);
+  const stagiaires = await db.select().from(stagiairesTable);
   const importLogs = await db
     .select()
     .from(importLogsTable)
     .orderBy(sql`${importLogsTable.createdAt} DESC`)
     .limit(5);
 
-  let totalTaux = 0;
-  let tauxCount = 0;
+  // Avancement global: ALL modules included (null = 0%), matches Excel formula
   let modulesValides = 0;
   const modulesSet = new Set<string>();
   for (const av of avancements) {
     modulesSet.add(av.moduleId);
-    if (av.tauxReel !== null) {
-      const reel = Math.min(av.tauxReel, 1);
-      totalTaux += reel;
-      tauxCount++;
-      if (reel >= 1) modulesValides++;
-    }
+    if (av.tauxReel !== null && av.tauxReel >= 1.0) modulesValides++;
   }
-  const tauxMoyen = tauxCount > 0 ? totalTaux / tauxCount : 0;
   const modulesTotal = modulesSet.size;
+  const tauxMoyen =
+    modulesTotal > 0
+      ? avancements.reduce((sum, av) => sum + (av.tauxReel ?? 0), 0) / modulesTotal
+      : 0;
 
   const allAlertes: ReturnType<typeof computeAlertesForGroupe> = [];
+
+  // Groupe alerts
   for (const groupe of groupes) {
     const groupeAv = avancements
       .filter((a) => a.groupeId === groupe.id)
@@ -62,44 +63,47 @@ router.get("/dashboard", async (req, res): Promise<void> => {
         moduleIntitule: a.moduleIntitule,
         tauxReel: a.tauxReel,
         tauxTheorique,
-        ecart: a.tauxReel !== null ? a.tauxReel - tauxTheorique : null,
+        ecart:
+          a.tauxReel !== null && tauxTheorique !== null
+            ? a.tauxReel - tauxTheorique
+            : null,
       }));
 
-    const groupeNotes = notes.filter((n) => {
-      const s = groupeAv.find(() => true);
-      return !!s;
-    });
-
-    const nbStagiaires = notes.filter((n) => {
-      const stagiaires = [
-        ...new Set(
-          notes
-            .filter(
-              (nn) =>
-                avancements.find((a) => a.groupeId === groupe.id) !== undefined
-            )
-            .map((nn) => nn.cef)
-        ),
-      ];
-      return stagiaires.includes(n.cef);
-    }).length;
+    const gStagiaires = stagiaires.filter((s) => s.groupeId === groupe.id);
+    const gNotes = notes.filter((n) => gStagiaires.some((s) => s.cef === n.cef));
 
     const gAlertes = computeAlertesForGroupe(
       groupe.id,
       groupe.code,
       groupeAv,
-      groupeNotes.map((n) => ({
-        moduleCode: n.moduleCode,
-        efmStatut: n.efmStatut,
-      })),
-      nbStagiaires
+      gNotes.map((n) => ({ moduleCode: n.moduleCode, efmStatut: n.efmStatut })),
+      gStagiaires.length
     );
     allAlertes.push(...gAlertes);
   }
 
+  // Stagiaire alerts (same logic as /api/alertes route)
+  for (const s of stagiaires) {
+    const sNotes = notes
+      .filter((n) => n.cef === s.cef)
+      .map((n) => ({
+        moduleCode: n.moduleCode,
+        moduleIntitule: n.moduleIntitule,
+        cc: n.cc,
+        efm: n.efm,
+        efmStatut: n.efmStatut,
+        moyenneOff: n.moyenneOff,
+      }));
+    const sAlertes = computeAlertesForStagiaire(
+      s.cef,
+      `${s.prenom} ${s.nom}`,
+      sNotes
+    );
+    allAlertes.push(...sAlertes);
+  }
+
   const alertesCount = allAlertes.length;
-  const alertesCritiques = allAlertes.filter((a) => a.niveau === "critique")
-    .length;
+  const alertesCritiques = allAlertes.filter((a) => a.niveau === "critique").length;
 
   const responseData = {
     groupesActifs,

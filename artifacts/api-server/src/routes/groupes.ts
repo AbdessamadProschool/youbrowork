@@ -68,14 +68,10 @@ router.get("/groupes", async (req, res): Promise<void> => {
       const hasReel = gAv.some((a) => a.tauxReel !== null);
 
       let avgReel: number | null = null;
-      if (hasReel) {
-        const reelVals = gAv
-          .filter((a) => a.tauxReel !== null)
-          .map((a) => Math.min(a.tauxReel!, 1));
-        avgReel =
-          reelVals.length > 0
-            ? reelVals.reduce((s, v) => s + v, 0) / reelVals.length
-            : null;
+      if (hasReel && gAv.length > 0) {
+        // Include ALL modules (null = 0%), divide by total count — matches Excel formula
+        const totalTaux = gAv.reduce((sum, a) => sum + (a.tauxReel ?? 0), 0);
+        avgReel = totalTaux / gAv.length;
       }
 
       const cal = await getCalendrierForGroupe(g.annee, g.mode);
@@ -183,14 +179,10 @@ router.get("/groupes/:id", async (req, res): Promise<void> => {
 
   const hasReel = avancements.some((a) => a.tauxReel !== null);
   let avgReel: number | null = null;
-  if (hasReel) {
-    const reelVals = avancements
-      .filter((a) => a.tauxReel !== null)
-      .map((a) => Math.min(a.tauxReel!, 1));
-    avgReel =
-      reelVals.length > 0
-        ? reelVals.reduce((s, v) => s + v, 0) / reelVals.length
-        : null;
+  if (hasReel && avancements.length > 0) {
+    // Include ALL modules (null = 0%), divide by total count — matches Excel formula
+    const totalTaux = avancements.reduce((sum, a) => sum + (a.tauxReel ?? 0), 0);
+    avgReel = totalTaux / avancements.length;
   }
 
   const ecart =
@@ -266,12 +258,11 @@ router.get("/groupes/:id/avancement", async (req, res): Promise<void> => {
     };
   });
 
-  const reelVals = modules
-    .filter((m) => m.tauxReel !== null)
-    .map((m) => m.tauxReel!);
+  // Include ALL modules (null = 0%) for global average — matches Excel formula
+  const hasAnyReel = modules.some((m) => m.tauxReel !== null);
   const avgReel =
-    reelVals.length > 0
-      ? reelVals.reduce((s, v) => s + v, 0) / reelVals.length
+    hasAnyReel && modules.length > 0
+      ? modules.reduce((sum, m) => sum + (m.tauxReel ?? 0), 0) / modules.length
       : null;
   const ecartGlobal =
     avgReel !== null && tauxTheorique !== null
