@@ -58,17 +58,9 @@ export interface PvEfmResult {
   stagiaires: PvStagiaireRow[];
 }
 
-function cellStatut(val: unknown): CalendrierStatut {
-  if (val === null || val === undefined || val === "") return "VIDE";
-  const s = String(val).trim();
-  if (s === "1" || s === "1.0" || s === "1.00") return "FORMATION";
-  if (s.toUpperCase() === "ST") return "STAGE";
-  if (s.toUpperCase() === "EFF" || s.toUpperCase() === "FIN") return "FIN";
-  if (/عطلة/i.test(s)) return "VACANCES";
-  if (/[\u0600-\u06FF]/.test(s)) return "FERIE";
-  return "VIDE";
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// État d'avancement (Excel)
+// ─────────────────────────────────────────────────────────────────────────────
 export function parseEtatXlsx(buffer: Buffer): EtatRow[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const ws = wb.Sheets["Sheet1"] ?? wb.Sheets[wb.SheetNames[0]];
@@ -114,164 +106,146 @@ export function parseEtatXlsx(buffer: Buffer): EtatRow[] {
   return results;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Calendrier (Excel) — reads "Taux d'AP objectif" column directly
+// ─────────────────────────────────────────────────────────────────────────────
 export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const wb = XLSX.read(buffer, { type: "buffer" });
 
-  // Try multiple possible sheet names
   const sheetName =
-    wb.SheetNames.find((n) => n.includes("25-26") || n.includes("26") || n.includes("Cal")) ??
-    wb.SheetNames[0];
+    wb.SheetNames.find(
+      (n) => /25.?26|26|Cal/i.test(n)
+    ) ?? wb.SheetNames[0];
 
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`Sheet not found. Available: ${wb.SheetNames.join(", ")}`);
 
   logger.info({ sheetName, allSheets: wb.SheetNames }, "Calendrier sheet selected");
 
-  // Read with raw=true to get actual values, not formatted strings
   const rawRows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
     header: 1,
     defval: null,
     raw: true,
   }) as unknown[][];
 
-  logger.info({ totalRows: rawRows.length }, "Calendrier raw rows loaded");
+  logger.info({ totalRows: rawRows.length }, "Calendrier raw rows");
 
-  // Find the date row: look for a row that has many date-like values
-  let dateRowIndex = -1;
-  for (let i = 0; i < Math.min(rawRows.length, 15); i++) {
-    const row = rawRows[i] as unknown[];
-    let dateCount = 0;
-    for (let c = 1; c < Math.min(row.length, 30); c++) {
-      const v = row[c];
-      if (v instanceof Date) dateCount++;
-      else if (typeof v === "number" && v > 40000 && v < 50000) dateCount++; // Excel date serial
+  // ── Step 1: Find all columns whose header contains "Taux" + "AP" + "objectif"
+  // Scan rows 0-10 for header cells
+  const tauxApColumns: number[] = [];
+  for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+    const row = rawRows[r] as unknown[];
+    for (let c = 0; c < row.length; c++) {
+      const cell = String(row[c] ?? "").toLowerCase();
+      if (
+        cell.includes("taux") &&
+        (cell.includes("ap") || cell.includes("a.p")) &&
+        cell.includes("objectif")
+      ) {
+        tauxApColumns.push(c);
+        logger.info({ rowIdx: r, colIdx: c, cell }, "Found Taux AP objectif column");
+      }
     }
-    if (dateCount >= 5) {
-      dateRowIndex = i;
-      logger.info({ dateRowIndex, sampleValue: rawRows[i][1] }, "Found date row");
-      break;
+  }
+
+  // Also accept column headers that contain just "objectif" as fallback
+  if (tauxApColumns.length === 0) {
+    for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+      const row = rawRows[r] as unknown[];
+      for (let c = 0; c < row.length; c++) {
+        const cell = String(row[c] ?? "").toLowerCase();
+        if (cell.includes("objectif")) {
+          tauxApColumns.push(c);
+          logger.info({ rowIdx: r, colIdx: c, cell }, "Found objectif column (fallback)");
+        }
+      }
     }
   }
 
-  if (dateRowIndex === -1) {
-    // Fallback: assume row 4 (index)
-    dateRowIndex = 4;
-    logger.warn({ fallbackDateRow: dateRowIndex }, "Could not detect date row, using fallback row 4");
+  logger.info({ tauxApColumns }, "All Taux AP objectif column indices found");
+
+  // Use the RIGHTMOST column (most recent year in multi-year calendar)
+  const tauxCol =
+    tauxApColumns.length > 0
+      ? Math.max(...tauxApColumns)
+      : -1;
+
+  if (tauxCol < 0) {
+    logger.warn("No 'Taux d\\'AP objectif' column found in calendar");
+    return [];
   }
 
-  const dateRow = rawRows[dateRowIndex] as unknown[];
-
-  // Log all row labels in the first column to understand structure
-  const rowLabels: { idx: number; label: string }[] = [];
-  for (let i = dateRowIndex + 1; i < rawRows.length; i++) {
-    const firstCell = String(rawRows[i][0] ?? "").trim();
-    if (firstCell) rowLabels.push({ idx: i, label: firstCell });
-  }
-  logger.info({ rowLabels }, "All labeled rows in calendar");
-
+  // ── Step 2: Find CDJ rows (rows where column A matches 1A-CDJ or 2A-CDJ)
   const now = new Date();
   const anneeFormation =
     now.getMonth() >= 8
       ? `${now.getFullYear()}/${now.getFullYear() + 1}`
       : `${now.getFullYear() - 1}/${now.getFullYear()}`;
 
-  // CDJ target rows: match "1A-CDJ" (any suffix) and "2A-CDJ" (any suffix)
-  const targetPatterns = [
-    { pattern: /1A.?CDJ/i, label: "1A-CDJ" },
-    { pattern: /2A.?CDJ/i, label: "2A-CDJ" },
-  ];
-
-  const targetRows: { label: string; rowIndex: number }[] = [];
-  for (const { idx, label } of rowLabels) {
-    for (const { pattern, label: canonical } of targetPatterns) {
-      if (pattern.test(label)) {
-        targetRows.push({ label: canonical, rowIndex: idx });
-        logger.info({ rowIndex: idx, originalLabel: label, canonical }, "CDJ row matched");
-      }
-    }
-  }
-
-  if (targetRows.length === 0) {
-    logger.warn({ rowLabels }, "No CDJ rows found matching 1A-CDJ or 2A-CDJ patterns");
-  }
-
   const results: CalendrierResult[] = [];
 
-  for (const { label, rowIndex } of targetRows) {
-    const dataRow = rawRows[rowIndex] as unknown[];
-    const jourDetails: JourDetail[] = [];
-    let totalJours = 0;
-    let joursRealises = 0;
-
-    // Parse dates from dateRow
-    const parsedDates: (Date | null)[] = [];
-    for (let col = 1; col < dateRow.length; col++) {
-      const rawDate = dateRow[col];
-      let date: Date | null = null;
-
-      if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
-        date = rawDate;
-      } else if (typeof rawDate === "number" && rawDate > 40000 && rawDate < 50000) {
-        // Excel serial date: days since Jan 1 1900
-        const d = new Date(Date.UTC(1899, 11, 30) + rawDate * 86400 * 1000);
-        if (!isNaN(d.getTime())) date = d;
-      } else if (typeof rawDate === "string" && rawDate.trim()) {
-        const parsed = new Date(rawDate);
-        if (!isNaN(parsed.getTime())) date = parsed;
-      }
-
-      parsedDates.push(date);
+  // Log all labeled rows for debugging
+  const labeledRows: { idx: number; label: string; tauxVal: unknown }[] = [];
+  for (let r = 0; r < rawRows.length; r++) {
+    const label = String(rawRows[r][0] ?? "").trim();
+    if (label) {
+      labeledRows.push({ idx: r, label, tauxVal: rawRows[r][tauxCol] });
     }
+  }
+  logger.info({ labeledRows }, "All labeled rows with Taux AP values");
 
-    for (let col = 1; col < dataRow.length; col++) {
-      const date = parsedDates[col - 1];
-      const rawVal = dataRow[col];
-      const statut = cellStatut(rawVal);
+  for (const { label, idx, tauxVal } of labeledRows) {
+    // Match 1A-CDJ or 2A-CDJ patterns
+    if (!/^[12]A.?CDJ/i.test(label)) continue;
 
-      if (statut === "FORMATION") {
-        totalJours++;
-        // Count as realized if date is on or before today
-        if (date && date.getTime() <= now.getTime()) {
-          joursRealises++;
-        }
+    // Parse the tauxTheorique value
+    let tauxTheorique = 0;
+    if (typeof tauxVal === "number" && !isNaN(tauxVal)) {
+      // Excel percentage is stored as decimal (0.68 = 68%)
+      tauxTheorique = tauxVal <= 1 ? tauxVal : tauxVal / 100;
+    } else if (typeof tauxVal === "string" && tauxVal.trim()) {
+      const parsed = parseFloat(tauxVal.replace("%", "").replace(",", ".").trim());
+      if (!isNaN(parsed)) {
+        tauxTheorique = parsed > 1 ? parsed / 100 : parsed;
       }
-
-      jourDetails.push({
-        date: date ? date.toISOString().split("T")[0] : "",
-        statut,
-      });
     }
-
-    const tauxTheorique = totalJours > 0 ? joursRealises / totalJours : 0;
 
     logger.info(
-      { label, totalJours, joursRealises, tauxTheorique: (tauxTheorique * 100).toFixed(1) + "%" },
-      "Calendrier row computed"
+      {
+        label,
+        rowIdx: idx,
+        tauxCol,
+        tauxVal,
+        tauxTheorique: (tauxTheorique * 100).toFixed(1) + "%",
+      },
+      "CDJ row parsed"
     );
 
     results.push({
       typeCalendrier: label,
       anneeFormation,
-      totalJours,
-      joursRealises,
+      totalJours: 0,      // not computed from dates — using pre-computed value
+      joursRealises: 0,
       tauxTheorique,
       dateReference: now,
-      jourDetails,
+      jourDetails: [],
     });
   }
 
+  logger.info({ count: results.length }, "Calendrier parse complete");
   return results;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PV EFM (PDF) — OFPPT format
+//
+// Each student row: <13-14 digit CEF><UPPERCASE NAME><CC/20><EFM/40 or Absent><Moy/20>
+// Numbers have EXACTLY 2 decimal places. No delimiters between fields.
+// Example:  2009052100036ABBID HAMZA18.0029.0015.67
+// Absent:   2009042900033BASSADDOUG DRISS14.00Absent4.67
+// moyenneOff = (CC + EFM) / 3  where EFM is /40
+// ─────────────────────────────────────────────────────────────────────────────
 export function parsePvEfmPdf(text: string): PvEfmResult {
-  // The OFPPT PV EFM PDF format (after pdf-parse extraction):
-  //   Header lines with Etablissement, Filière, Groupe, Module...
-  //   Student rows (NO separator between fields):
-  //     <CEF-13digits><NOM PRENOM><CC/20><EFM/40 or "Absent"><Moy/20>
-  //   Example: "2009052100036ABBID HAMZA18.0029.0015.67"
-  //   Absent:  "2009042900033BASSADDOUG DRISS14.00Absent4.67"
-  //   Note: EFM is out of 40. moyenneOff = (CC + EFM) / 3
-
   const etablissementMatch = text.match(/[Éé]tablissement\s*[:\-]?\s*(.+)/i);
   const filiereMatch = text.match(/Fili[eè]re\s*[:\-]?\s*(.+?)(?:\t|$)/im);
   const anneeMatch = text.match(/Ann[eé]e\s+de\s+formation\s*[:\-]?\s*(\d{4}[\/\-]\d{4})/i);
@@ -280,7 +254,7 @@ export function parsePvEfmPdf(text: string): PvEfmResult {
     text.match(/\bGroupe\b[:\-\s]*([A-Z]{2}\d{2,3})/i);
   const niveauMatch = text.match(/Niveau\s*[:\-]?\s*(.+?)(?:\t|$)/im);
 
-  // Extract module: format "(M101)" appears in "Intitulé du Module: Métier et formation (M101)"
+  // Module: "Intitulé du Module: Titre du module (M101)"
   const moduleFullMatch = text.match(
     /Intitul[eé](?:\s+du)?\s+[Mm]odule\s*[:\-]?\s*(.+?)\s*\(M(\d+)\)/i
   );
@@ -288,52 +262,68 @@ export function parsePvEfmPdf(text: string): PvEfmResult {
 
   let moduleCode = "";
   let moduleIntitule = "";
-
   if (moduleFullMatch) {
     moduleIntitule = moduleFullMatch[1].trim();
     moduleCode = `M${moduleFullMatch[2]}`;
   } else if (moduleAltMatch) {
     moduleCode = `M${moduleAltMatch[1]}`;
-  }
-
-  // Fallback: search for Mxxx pattern anywhere
-  if (!moduleCode) {
-    const mMatch = text.match(/\bM(\d{2,3})\b/);
-    if (mMatch) moduleCode = `M${mMatch[1]}`;
+  } else {
+    const mFallback = text.match(/\bM(\d{2,3})\b/);
+    if (mFallback) moduleCode = `M${mFallback[1]}`;
   }
 
   const groupe = groupeMatch ? groupeMatch[1].trim() : "";
-
   const inscritMatch = text.match(/Inscrits?\s*:?\s*(\d+)/i);
   const presentMatch = text.match(/Pr[eé]sents?\s*:?\s*(\d+)/i);
   const absentMatch = text.match(/Absents?\s*:?\s*(\d+)/i);
 
-  // ── Student row parser ───────────────────────────────────────────────────
-  // Format: <13-14 digit CEF><UPPERCASE NAME><CC.xx><EFM.xx or Absent><Moy.xx>
-  // The name is all uppercase letters, spaces, hyphens, apostrophes.
-  // There is NO delimiter between CEF, name, and the numbers.
-  // CC is /20, EFM is /40, moyenneOff = (CC + EFM) / 3.
-  const rowRegex =
-    /(\d{13,14})([A-ZÉÈÀÙÂÊÎÔÛÄËÏÖÜ][A-ZÉÈÀÙÂÊÎÔÛÄËÏÖÜ\s\-']+?)(\d+\.\d+)(Absent|\d+\.\d+)(\d+\.\d+)/g;
-
+  // ── Parse student rows ────────────────────────────────────────────────────
+  // Each line starts with exactly 13–14 digits (CEF) immediately followed by
+  // an uppercase letter (first char of the student name).
+  // Numbers always have EXACTLY 2 decimal places (use \d+\.\d{2} to split them).
   const stagiaires: PvStagiaireRow[] = [];
-  let match: RegExpExecArray | null;
+  const lines = text.split("\n");
 
-  while ((match = rowRegex.exec(text)) !== null) {
-    const cef = match[1];
-    const nomPrenom = match[2].trim();
-    const cc = parseFloat(match[3]);
-    const efmRaw = match[4];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    // Must start with 13-14 digits followed immediately by an uppercase letter
+    const cefMatch = line.match(/^(\d{13,14})([A-Z])/);
+    if (!cefMatch) continue;
+
+    const cef = cefMatch[1];
+    const rest = line.substring(cef.length); // e.g. "ABBID HAMZA18.0029.0015.67"
+
+    // Name ends at the first digit
+    const firstDigitIdx = rest.search(/\d/);
+    if (firstDigitIdx <= 0) continue;
+
+    const nomPrenom = rest.substring(0, firstDigitIdx).trim();
+    const afterName = rest.substring(firstDigitIdx); // e.g. "18.0029.0015.67" or "14.00Absent4.67"
+
+    // Extract tokens: numbers with exactly 2 decimal places OR "Absent"
+    // Using \d{2} prevents greedy merging of adjacent numbers (18.0029.00 → 18.00 + 29.00)
+    const tokenMatches = [...afterName.matchAll(/(\d+\.\d{2}|Absent)/gi)];
+    const tokens = tokenMatches.map((m) => m[1]);
+
+    if (tokens.length < 2) {
+      logger.debug({ cef, line, tokens, reason: "too few tokens" }, "Skipping line");
+      continue;
+    }
+
+    const cc = parseFloat(tokens[0]);
+    const efmRaw = tokens[1];
     const isAbsent = efmRaw.toLowerCase() === "absent";
     const efm = isAbsent ? 0 : parseFloat(efmRaw);
     const efmStatut: "PRESENT" | "ABSENT" = isAbsent ? "ABSENT" : "PRESENT";
 
-    // Validate ranges: CC 0-20, EFM 0-40
-    if (cc > 20 || efm > 40) {
-      logger.debug({ cef, cc, efm, reason: "out of range" }, "Skipping student row");
+    // Validate ranges: CC 0–20, EFM 0–40
+    if (isNaN(cc) || isNaN(efm) || cc > 20 || efm > 40) {
+      logger.debug({ cef, cc, efm, reason: "out of range" }, "Skipping line");
       continue;
     }
 
+    // moyenneOff = (CC + EFM) / 3, rounded to 2 decimal places
     const moyenneOff = Math.round(((cc + efm) / 3) * 100) / 100;
 
     logger.debug({ cef, nomPrenom, cc, efm, efmStatut, moyenneOff }, "Student parsed");
