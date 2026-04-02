@@ -1,13 +1,13 @@
 import { Router } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   groupesTable,
   avancementsTable,
-  calendriersTable,
   notesModuleTable,
   stagiairesTable,
 } from "@workspace/db";
+import { getCalendrierForGroupe } from "../lib/calendrier-helper";
 import {
   GetGroupesResponse,
   GetGroupeResponse,
@@ -58,60 +58,56 @@ router.get("/groupes", async (req, res): Promise<void> => {
     );
   }
 
-  const calendrier = await db
-    .select()
-    .from(calendriersTable)
-    .orderBy(sql`${calendriersTable.importedAt} DESC`)
-    .limit(1)
-    .then((r) => r[0] ?? null);
-
-  const tauxTheorique = calendrier ? calendrier.tauxTheorique : null;
-
   const avancements = await db.select().from(avancementsTable);
 
   const stagiaires = await db.select().from(stagiairesTable);
 
-  const result = groupes.map((g) => {
-    const gAv = avancements.filter((a) => a.groupeId === g.id);
-    const hasReel = gAv.some((a) => a.tauxReel !== null);
+  const result = await Promise.all(
+    groupes.map(async (g) => {
+      const gAv = avancements.filter((a) => a.groupeId === g.id);
+      const hasReel = gAv.some((a) => a.tauxReel !== null);
 
-    let avgReel: number | null = null;
-    if (hasReel) {
-      const reelVals = gAv
-        .filter((a) => a.tauxReel !== null)
-        .map((a) => Math.min(a.tauxReel!, 1));
-      avgReel =
-        reelVals.length > 0
-          ? reelVals.reduce((s, v) => s + v, 0) / reelVals.length
+      let avgReel: number | null = null;
+      if (hasReel) {
+        const reelVals = gAv
+          .filter((a) => a.tauxReel !== null)
+          .map((a) => Math.min(a.tauxReel!, 1));
+        avgReel =
+          reelVals.length > 0
+            ? reelVals.reduce((s, v) => s + v, 0) / reelVals.length
+            : null;
+      }
+
+      const cal = await getCalendrierForGroupe(g.annee, g.mode);
+      const tauxTheorique = cal ? cal.tauxTheorique : null;
+
+      const ecart =
+        avgReel !== null && tauxTheorique !== null
+          ? avgReel - tauxTheorique
           : null;
-    }
 
-    const ecart =
-      avgReel !== null && tauxTheorique !== null
-        ? avgReel - tauxTheorique
-        : null;
+      const nbStagiaires = stagiaires.filter(
+        (s) => s.groupeId === g.id
+      ).length;
 
-    const nbStagiaires = stagiaires.filter(
-      (s) => s.groupeId === g.id
-    ).length;
-
-    return {
-      id: g.id,
-      code: g.code,
-      annee: g.annee,
-      mode: g.mode,
-      filiereCode: g.filiereCode,
-      filiereNom: g.filiereNom,
-      statut: g.statut,
-      anneeFormation: g.anneeFormation,
-      tauxReel: avgReel,
-      tauxTheorique,
-      ecart,
-      avancementStatut: avancementStatut(avgReel, tauxTheorique),
-      nbStagiaires,
-      createdAt: g.createdAt.toISOString(),
-    };
-  });
+      return {
+        id: g.id,
+        code: g.code,
+        annee: g.annee,
+        mode: g.mode,
+        filiereCode: g.filiereCode,
+        filiereNom: g.filiereNom,
+        statut: g.statut,
+        anneeFormation: g.anneeFormation,
+        tauxReel: avgReel,
+        tauxTheorique,
+        ecart,
+        avancementStatut: avancementStatut(avgReel, tauxTheorique),
+        nbStagiaires,
+        createdAt: g.createdAt.toISOString(),
+      };
+    })
+  );
 
   res.json(GetGroupesResponse.parse(result));
 });
@@ -177,13 +173,8 @@ router.get("/groupes/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const calendrier = await db
-    .select()
-    .from(calendriersTable)
-    .orderBy(sql`${calendriersTable.importedAt} DESC`)
-    .limit(1)
-    .then((r) => r[0] ?? null);
-  const tauxTheorique = calendrier ? calendrier.tauxTheorique : null;
+  const cal = await getCalendrierForGroupe(groupe.annee, groupe.mode);
+  const tauxTheorique = cal ? cal.tauxTheorique : null;
 
   const avancements = await db
     .select()
@@ -246,13 +237,8 @@ router.get("/groupes/:id/avancement", async (req, res): Promise<void> => {
     return;
   }
 
-  const calendrier = await db
-    .select()
-    .from(calendriersTable)
-    .orderBy(sql`${calendriersTable.importedAt} DESC`)
-    .limit(1)
-    .then((r) => r[0] ?? null);
-  const tauxTheorique = calendrier ? calendrier.tauxTheorique : null;
+  const cal2 = await getCalendrierForGroupe(groupe.annee, groupe.mode);
+  const tauxTheorique = cal2 ? cal2.tauxTheorique : null;
 
   const avancements = await db
     .select()

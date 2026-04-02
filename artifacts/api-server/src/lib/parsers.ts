@@ -264,38 +264,36 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
 }
 
 export function parsePvEfmPdf(text: string): PvEfmResult {
-  // Log the first 3000 chars of PDF text for debugging
-  logger.info({ pdfTextSample: text.substring(0, 3000) }, "PDF raw text (first 3000 chars)");
+  // The OFPPT PV EFM PDF format (after pdf-parse extraction):
+  //   Header lines with Etablissement, Filière, Groupe, Module...
+  //   Student rows (NO separator between fields):
+  //     <CEF-13digits><NOM PRENOM><CC/20><EFM/40 or "Absent"><Moy/20>
+  //   Example: "2009052100036ABBID HAMZA18.0029.0015.67"
+  //   Absent:  "2009042900033BASSADDOUG DRISS14.00Absent4.67"
+  //   Note: EFM is out of 40. moyenneOff = (CC + EFM) / 3
 
   const etablissementMatch = text.match(/[Éé]tablissement\s*[:\-]?\s*(.+)/i);
-  const filiereMatch = text.match(/Fili[eè]re\s*[:\-]?\s*(.+)/i);
+  const filiereMatch = text.match(/Fili[eè]re\s*[:\-]?\s*(.+?)(?:\t|$)/im);
   const anneeMatch = text.match(/Ann[eé]e\s+de\s+formation\s*[:\-]?\s*(\d{4}[\/\-]\d{4})/i);
-  const groupeMatch = text.match(/Groupe\s+de\s+formation\s*[:\-]?\s*([A-Z]{2}\d{2,3})/i)
-    ?? text.match(/\bGroupe\b[:\-\s]*([A-Z]{2}\d{2,3})/i);
-  const niveauMatch = text.match(/Niveau\s*[:\-]?\s*(.+)/i);
+  const groupeMatch =
+    text.match(/Groupe\s+de\s+formation\s*[:\-]?\s*([A-Z]{2}\d{2,3})/i) ??
+    text.match(/\bGroupe\b[:\-\s]*([A-Z]{2}\d{2,3})/i);
+  const niveauMatch = text.match(/Niveau\s*[:\-]?\s*(.+?)(?:\t|$)/im);
 
-  // Match module: code then title, or title then code
-  const moduleMatch =
-    text.match(/\(M(\d+)\)\s*[:\-]?\s*(.+?)(?:\n|$)/i) ??
-    text.match(/Module\s*N[º°]?\s*(\d+)\s*[:\-]?\s*(.+?)(?:\n|$)/i) ??
-    text.match(/Intitul[eé](?:\s+du)?\s+[Mm]odule\s*[:\-]?\s*(.+?)\s*[\(\[]?M?(\d+)[\)\]]?(?:\n|$)/i);
+  // Extract module: format "(M101)" appears in "Intitulé du Module: Métier et formation (M101)"
+  const moduleFullMatch = text.match(
+    /Intitul[eé](?:\s+du)?\s+[Mm]odule\s*[:\-]?\s*(.+?)\s*\(M(\d+)\)/i
+  );
+  const moduleAltMatch = text.match(/\(M(\d+)\)/i);
 
   let moduleCode = "";
   let moduleIntitule = "";
 
-  if (moduleMatch) {
-    // pattern 1: (M101) title
-    if (moduleMatch[0].match(/\(M\d+\)/)) {
-      moduleCode = `M${moduleMatch[1]}`;
-      moduleIntitule = moduleMatch[2]?.trim() ?? "";
-    } else if (moduleMatch[0].match(/Module\s*N/i)) {
-      moduleCode = `M${moduleMatch[1]}`;
-      moduleIntitule = moduleMatch[2]?.trim() ?? "";
-    } else {
-      // pattern 3: title then number
-      moduleIntitule = moduleMatch[1]?.trim() ?? "";
-      moduleCode = moduleMatch[2] ? `M${moduleMatch[2]}` : "";
-    }
+  if (moduleFullMatch) {
+    moduleIntitule = moduleFullMatch[1].trim();
+    moduleCode = `M${moduleFullMatch[2]}`;
+  } else if (moduleAltMatch) {
+    moduleCode = `M${moduleAltMatch[1]}`;
   }
 
   // Fallback: search for Mxxx pattern anywhere
@@ -310,103 +308,40 @@ export function parsePvEfmPdf(text: string): PvEfmResult {
   const presentMatch = text.match(/Pr[eé]sents?\s*:?\s*(\d+)/i);
   const absentMatch = text.match(/Absents?\s*:?\s*(\d+)/i);
 
-  logger.info(
-    {
-      groupe,
-      moduleCode,
-      moduleIntitule,
-      etablissement: etablissementMatch?.[1],
-      textLength: text.length,
-    },
-    "PDF header extracted"
-  );
-
-  // Try multiple line patterns for student rows:
-  // Pattern A: "N° | CEF | NomPrenom | CC | EFM | Moy"  (table format)
-  // Pattern B: " CEF NomPrenom CC EFM Moy"
-  // Pattern C: lines with 13-14 digit CEF somewhere
+  // ── Student row parser ───────────────────────────────────────────────────
+  // Format: <13-14 digit CEF><UPPERCASE NAME><CC.xx><EFM.xx or Absent><Moy.xx>
+  // The name is all uppercase letters, spaces, hyphens, apostrophes.
+  // There is NO delimiter between CEF, name, and the numbers.
+  // CC is /20, EFM is /40, moyenneOff = (CC + EFM) / 3.
+  const rowRegex =
+    /(\d{13,14})([A-ZÉÈÀÙÂÊÎÔÛÄËÏÖÜ][A-ZÉÈÀÙÂÊÎÔÛÄËÏÖÜ\s\-']+?)(\d+\.\d+)(Absent|\d+\.\d+)(\d+\.\d+)/g;
 
   const stagiaires: PvStagiaireRow[] = [];
-  const lines = text.split("\n");
+  let match: RegExpExecArray | null;
 
-  // Strategy: find all lines containing a 13-14 digit number (CEF)
-  for (const line of lines) {
-    const trimmed = line.trim();
+  while ((match = rowRegex.exec(text)) !== null) {
+    const cef = match[1];
+    const nomPrenom = match[2].trim();
+    const cc = parseFloat(match[3]);
+    const efmRaw = match[4];
+    const isAbsent = efmRaw.toLowerCase() === "absent";
+    const efm = isAbsent ? 0 : parseFloat(efmRaw);
+    const efmStatut: "PRESENT" | "ABSENT" = isAbsent ? "ABSENT" : "PRESENT";
 
-    // Look for CEF anywhere in the line
-    const cefMatch = trimmed.match(/\b(\d{13,14})\b/);
-    if (!cefMatch) continue;
-
-    const cef = cefMatch[1];
-    const afterCef = trimmed.substring(trimmed.indexOf(cef) + cef.length).trim();
-
-    // Extract all numbers from afterCef
-    const numMatches = afterCef.match(/\b\d+[\.,]?\d*\b/g) ?? [];
-    const numbers = numMatches.map((n) => parseFloat(n.replace(",", ".")));
-
-    // Try to identify CC, EFM, Moyenne from the numbers
-    // Usually there are 3 numbers: CC, EFM, Moy OR just 2: CC, Moy (absent EFM)
-    // Or the word "Absent" appears after CEF
-
-    const isAbsent = /absent/i.test(afterCef);
-
-    // Extract name: text between CEF and first number
-    const firstNumIdx = afterCef.search(/\b\d+[\.,]?\d*\b/);
-    const nomPrenom =
-      firstNumIdx > 0
-        ? afterCef.substring(0, firstNumIdx).trim().replace(/^\d+\s*/, "") // remove leading rank number
-        : afterCef.replace(/\d+[\.,]?\d*/g, "").trim();
-
-    if (numbers.length < 2) {
-      logger.debug({ line: trimmed, cef, reason: "not enough numbers" }, "Skipping line");
+    // Validate ranges: CC 0-20, EFM 0-40
+    if (cc > 20 || efm > 40) {
+      logger.debug({ cef, cc, efm, reason: "out of range" }, "Skipping student row");
       continue;
     }
 
-    let cc: number;
-    let efm: number;
-    let efmStatut: "PRESENT" | "ABSENT";
+    const moyenneOff = Math.round(((cc + efm) / 3) * 100) / 100;
 
-    if (isAbsent) {
-      cc = numbers[0];
-      efm = 0;
-      efmStatut = "ABSENT";
-    } else if (numbers.length >= 3) {
-      // 3+ numbers: could be rank, cc, efm, moy or cc, efm, moy
-      // Check: if first number is small integer (rank), skip it
-      const startIdx = numbers[0] < 50 && numbers[1] <= 20 ? 0 : 0;
-      cc = numbers[startIdx];
-      efm = numbers[startIdx + 1];
-      efmStatut = "PRESENT";
-    } else {
-      // Only 2 numbers: assume CC and EFM
-      cc = numbers[0];
-      efm = numbers[1];
-      efmStatut = "PRESENT";
-    }
-
-    // Validate: CC and EFM should be 0-20
-    if (cc > 20 || efm > 20) {
-      logger.debug({ line: trimmed, cef, cc, efm, reason: "values out of range" }, "Skipping line");
-      continue;
-    }
-
-    const moyenneOff = (cc + efm) / 3;
-
-    logger.debug(
-      { cef, nomPrenom, cc, efm, efmStatut, moyenneOff },
-      "Student row parsed"
-    );
-
+    logger.debug({ cef, nomPrenom, cc, efm, efmStatut, moyenneOff }, "Student parsed");
     stagiaires.push({ cef, nomPrenom, cc, efm, efmStatut, moyenneOff });
   }
 
   logger.info(
-    {
-      groupe,
-      moduleCode,
-      stagiaires: stagiaires.length,
-      first3Lines: lines.slice(0, 10).join(" | "),
-    },
+    { groupe, moduleCode, moduleIntitule, stagiaires: stagiaires.length },
     "PV EFM parsed"
   );
 

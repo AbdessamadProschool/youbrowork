@@ -3,13 +3,13 @@ import { db } from "@workspace/db";
 import {
   groupesTable,
   avancementsTable,
-  calendriersTable,
   notesModuleTable,
   importLogsTable,
 } from "@workspace/db";
 import { GetDashboardResponse } from "@workspace/api-zod";
 import { computeAlertesForGroupe } from "../lib/alertes";
-import { and, sql } from "drizzle-orm";
+import { getCalendrierForGroupe } from "../lib/calendrier-helper";
+import { sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -17,14 +17,17 @@ router.get("/dashboard", async (req, res): Promise<void> => {
   const groupes = await db.select().from(groupesTable);
   const groupesActifs = groupes.filter((g) => g.statut === "Actif").length;
 
-  const calendrier = await db
-    .select()
-    .from(calendriersTable)
-    .orderBy(sql`${calendriersTable.importedAt} DESC`)
-    .limit(1)
-    .then((r) => r[0] ?? null);
-
-  const tauxTheorique = calendrier ? calendrier.tauxTheorique : 0;
+  // Compute a tauxTheorique per group and average them
+  const activeGroupes = groupes.filter((g) => g.statut === "Actif");
+  let tauxTheorique = 0;
+  if (activeGroupes.length > 0) {
+    let sum = 0;
+    for (const g of activeGroupes) {
+      const cal = await getCalendrierForGroupe(g.annee, g.mode);
+      sum += cal ? cal.tauxTheorique : 0;
+    }
+    tauxTheorique = sum / activeGroupes.length;
+  }
 
   const avancements = await db.select().from(avancementsTable);
   const notes = await db.select().from(notesModuleTable);
