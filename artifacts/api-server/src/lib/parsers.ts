@@ -61,10 +61,10 @@ export interface PvEfmResult {
 function cellStatut(val: unknown): CalendrierStatut {
   if (val === null || val === undefined || val === "") return "VIDE";
   const s = String(val).trim();
-  if (s === "1" || s === "1.0") return "FORMATION";
+  if (s === "1" || s === "1.0" || s === "1.00") return "FORMATION";
   if (s.toUpperCase() === "ST") return "STAGE";
-  if (s.toUpperCase() === "EFF") return "FIN";
-  if (/عطلة/.test(s)) return "VACANCES";
+  if (s.toUpperCase() === "EFF" || s.toUpperCase() === "FIN") return "FIN";
+  if (/عطلة/i.test(s)) return "VACANCES";
   if (/[\u0600-\u06FF]/.test(s)) return "FERIE";
   return "VIDE";
 }
@@ -116,66 +116,122 @@ export function parseEtatXlsx(buffer: Buffer): EtatRow[] {
 
 export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
-  const ws = wb.Sheets["25-26"] ?? wb.Sheets[wb.SheetNames[0]];
-  if (!ws) throw new Error("Sheet 25-26 not found");
 
-  const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+  // Try multiple possible sheet names
+  const sheetName =
+    wb.SheetNames.find((n) => n.includes("25-26") || n.includes("26") || n.includes("Cal")) ??
+    wb.SheetNames[0];
+
+  const ws = wb.Sheets[sheetName];
+  if (!ws) throw new Error(`Sheet not found. Available: ${wb.SheetNames.join(", ")}`);
+
+  logger.info({ sheetName, allSheets: wb.SheetNames }, "Calendrier sheet selected");
+
+  // Read with raw=true to get actual values, not formatted strings
+  const rawRows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
     header: 1,
     defval: null,
-    raw: false,
+    raw: true,
   }) as unknown[][];
 
-  if (raw.length < 5) throw new Error("Calendar sheet has too few rows");
+  logger.info({ totalRows: rawRows.length }, "Calendrier raw rows loaded");
 
-  const dateRow = raw[4] as unknown[];
-  const results: CalendrierResult[] = [];
-
-  const targetRows: { label: string; rowIndex: number }[] = [];
-  for (let i = 5; i < raw.length; i++) {
-    const firstCell = String(raw[i][0] ?? "").trim();
-    if (
-      firstCell.includes("1A-CDJ") ||
-      firstCell.includes("2A-CDJ") ||
-      firstCell.includes("1A CDJ") ||
-      firstCell.includes("2A CDJ")
-    ) {
-      targetRows.push({ label: firstCell, rowIndex: i });
+  // Find the date row: look for a row that has many date-like values
+  let dateRowIndex = -1;
+  for (let i = 0; i < Math.min(rawRows.length, 15); i++) {
+    const row = rawRows[i] as unknown[];
+    let dateCount = 0;
+    for (let c = 1; c < Math.min(row.length, 30); c++) {
+      const v = row[c];
+      if (v instanceof Date) dateCount++;
+      else if (typeof v === "number" && v > 40000 && v < 50000) dateCount++; // Excel date serial
+    }
+    if (dateCount >= 5) {
+      dateRowIndex = i;
+      logger.info({ dateRowIndex, sampleValue: rawRows[i][1] }, "Found date row");
+      break;
     }
   }
 
+  if (dateRowIndex === -1) {
+    // Fallback: assume row 4 (index)
+    dateRowIndex = 4;
+    logger.warn({ fallbackDateRow: dateRowIndex }, "Could not detect date row, using fallback row 4");
+  }
+
+  const dateRow = rawRows[dateRowIndex] as unknown[];
+
+  // Log all row labels in the first column to understand structure
+  const rowLabels: { idx: number; label: string }[] = [];
+  for (let i = dateRowIndex + 1; i < rawRows.length; i++) {
+    const firstCell = String(rawRows[i][0] ?? "").trim();
+    if (firstCell) rowLabels.push({ idx: i, label: firstCell });
+  }
+  logger.info({ rowLabels }, "All labeled rows in calendar");
+
   const now = new Date();
   const anneeFormation =
-    now.getFullYear() >= 9
+    now.getMonth() >= 8
       ? `${now.getFullYear()}/${now.getFullYear() + 1}`
       : `${now.getFullYear() - 1}/${now.getFullYear()}`;
 
+  // CDJ target rows: match "1A-CDJ" (any suffix) and "2A-CDJ" (any suffix)
+  const targetPatterns = [
+    { pattern: /1A.?CDJ/i, label: "1A-CDJ" },
+    { pattern: /2A.?CDJ/i, label: "2A-CDJ" },
+  ];
+
+  const targetRows: { label: string; rowIndex: number }[] = [];
+  for (const { idx, label } of rowLabels) {
+    for (const { pattern, label: canonical } of targetPatterns) {
+      if (pattern.test(label)) {
+        targetRows.push({ label: canonical, rowIndex: idx });
+        logger.info({ rowIndex: idx, originalLabel: label, canonical }, "CDJ row matched");
+      }
+    }
+  }
+
+  if (targetRows.length === 0) {
+    logger.warn({ rowLabels }, "No CDJ rows found matching 1A-CDJ or 2A-CDJ patterns");
+  }
+
+  const results: CalendrierResult[] = [];
+
   for (const { label, rowIndex } of targetRows) {
-    const dataRow = raw[rowIndex] as unknown[];
+    const dataRow = rawRows[rowIndex] as unknown[];
     const jourDetails: JourDetail[] = [];
     let totalJours = 0;
     let joursRealises = 0;
-    const dateRef = now;
 
-    for (let col = 1; col < dataRow.length; col++) {
+    // Parse dates from dateRow
+    const parsedDates: (Date | null)[] = [];
+    for (let col = 1; col < dateRow.length; col++) {
       const rawDate = dateRow[col];
       let date: Date | null = null;
 
-      if (rawDate instanceof Date) {
+      if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
         date = rawDate;
+      } else if (typeof rawDate === "number" && rawDate > 40000 && rawDate < 50000) {
+        // Excel serial date: days since Jan 1 1900
+        const d = new Date(Date.UTC(1899, 11, 30) + rawDate * 86400 * 1000);
+        if (!isNaN(d.getTime())) date = d;
       } else if (typeof rawDate === "string" && rawDate.trim()) {
         const parsed = new Date(rawDate);
         if (!isNaN(parsed.getTime())) date = parsed;
-      } else if (typeof rawDate === "number") {
-        date = XLSX.SSF.parse_date_code
-          ? new Date((rawDate - 25569) * 86400 * 1000)
-          : null;
       }
 
-      const statut = cellStatut(dataRow[col]);
+      parsedDates.push(date);
+    }
+
+    for (let col = 1; col < dataRow.length; col++) {
+      const date = parsedDates[col - 1];
+      const rawVal = dataRow[col];
+      const statut = cellStatut(rawVal);
 
       if (statut === "FORMATION") {
         totalJours++;
-        if (date && date <= dateRef) {
+        // Count as realized if date is on or before today
+        if (date && date.getTime() <= now.getTime()) {
           joursRealises++;
         }
       }
@@ -186,8 +242,12 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
       });
     }
 
-    const tauxTheorique =
-      totalJours > 0 ? Math.min(joursRealises / totalJours, 1) : 0;
+    const tauxTheorique = totalJours > 0 ? joursRealises / totalJours : 0;
+
+    logger.info(
+      { label, totalJours, joursRealises, tauxTheorique: (tauxTheorique * 100).toFixed(1) + "%" },
+      "Calendrier row computed"
+    );
 
     results.push({
       typeCalendrier: label,
@@ -195,7 +255,7 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
       totalJours,
       joursRealises,
       tauxTheorique,
-      dateReference: dateRef,
+      dateReference: now,
       jourDetails,
     });
   }
@@ -204,60 +264,154 @@ export function parseCalendrierXlsx(buffer: Buffer): CalendrierResult[] {
 }
 
 export function parsePvEfmPdf(text: string): PvEfmResult {
-  const etablissementMatch = text.match(/Etablissement\s*:\s*(.+)/i);
-  const filiereMatch = text.match(/Fili[eè]re\s*:\s*(.+)/i);
-  const anneeMatch = text.match(/Ann[eé]e de formation\s*:\s*(\d{4}\/\d{4})/i);
-  const groupeMatch = text.match(/Groupe de formation\s*:\s*([A-Z]{2}\d{3})/i);
-  const niveauMatch = text.match(/Niveau\s*:\s*(.+)/i);
-  const moduleMatch = text.match(/Intitul[eé] du Module:\s*(.+?)\s*\(M(\d+)\)/i);
-  const inscritMatch = text.match(
-    /Inscrits:(\d+)\s*\|Pr[eé]sents:(\d+)\s*\|Absents:(\d+)/i
-  );
+  // Log the first 3000 chars of PDF text for debugging
+  logger.info({ pdfTextSample: text.substring(0, 3000) }, "PDF raw text (first 3000 chars)");
+
+  const etablissementMatch = text.match(/[Éé]tablissement\s*[:\-]?\s*(.+)/i);
+  const filiereMatch = text.match(/Fili[eè]re\s*[:\-]?\s*(.+)/i);
+  const anneeMatch = text.match(/Ann[eé]e\s+de\s+formation\s*[:\-]?\s*(\d{4}[\/\-]\d{4})/i);
+  const groupeMatch = text.match(/Groupe\s+de\s+formation\s*[:\-]?\s*([A-Z]{2}\d{2,3})/i)
+    ?? text.match(/\bGroupe\b[:\-\s]*([A-Z]{2}\d{2,3})/i);
+  const niveauMatch = text.match(/Niveau\s*[:\-]?\s*(.+)/i);
+
+  // Match module: code then title, or title then code
+  const moduleMatch =
+    text.match(/\(M(\d+)\)\s*[:\-]?\s*(.+?)(?:\n|$)/i) ??
+    text.match(/Module\s*N[º°]?\s*(\d+)\s*[:\-]?\s*(.+?)(?:\n|$)/i) ??
+    text.match(/Intitul[eé](?:\s+du)?\s+[Mm]odule\s*[:\-]?\s*(.+?)\s*[\(\[]?M?(\d+)[\)\]]?(?:\n|$)/i);
+
+  let moduleCode = "";
+  let moduleIntitule = "";
+
+  if (moduleMatch) {
+    // pattern 1: (M101) title
+    if (moduleMatch[0].match(/\(M\d+\)/)) {
+      moduleCode = `M${moduleMatch[1]}`;
+      moduleIntitule = moduleMatch[2]?.trim() ?? "";
+    } else if (moduleMatch[0].match(/Module\s*N/i)) {
+      moduleCode = `M${moduleMatch[1]}`;
+      moduleIntitule = moduleMatch[2]?.trim() ?? "";
+    } else {
+      // pattern 3: title then number
+      moduleIntitule = moduleMatch[1]?.trim() ?? "";
+      moduleCode = moduleMatch[2] ? `M${moduleMatch[2]}` : "";
+    }
+  }
+
+  // Fallback: search for Mxxx pattern anywhere
+  if (!moduleCode) {
+    const mMatch = text.match(/\bM(\d{2,3})\b/);
+    if (mMatch) moduleCode = `M${mMatch[1]}`;
+  }
 
   const groupe = groupeMatch ? groupeMatch[1].trim() : "";
-  const moduleCode = moduleMatch ? `M${moduleMatch[2]}` : "";
-  const moduleIntitule = moduleMatch ? moduleMatch[1].trim() : "";
 
-  const lines = text.split("\n");
+  const inscritMatch = text.match(/Inscrits?\s*:?\s*(\d+)/i);
+  const presentMatch = text.match(/Pr[eé]sents?\s*:?\s*(\d+)/i);
+  const absentMatch = text.match(/Absents?\s*:?\s*(\d+)/i);
+
+  logger.info(
+    {
+      groupe,
+      moduleCode,
+      moduleIntitule,
+      etablissement: etablissementMatch?.[1],
+      textLength: text.length,
+    },
+    "PDF header extracted"
+  );
+
+  // Try multiple line patterns for student rows:
+  // Pattern A: "N° | CEF | NomPrenom | CC | EFM | Moy"  (table format)
+  // Pattern B: " CEF NomPrenom CC EFM Moy"
+  // Pattern C: lines with 13-14 digit CEF somewhere
+
   const stagiaires: PvStagiaireRow[] = [];
+  const lines = text.split("\n");
 
-  const rowRegex = /^(\d{13,14})\s+(.+?)\s+([\d.]+)\s+([\d.]+|Absent)\s+([\d.]+)/;
-
+  // Strategy: find all lines containing a 13-14 digit number (CEF)
   for (const line of lines) {
     const trimmed = line.trim();
-    const match = trimmed.match(rowRegex);
-    if (!match) continue;
 
-    const cef = match[1];
-    const nomPrenom = match[2].trim();
-    const cc = parseFloat(match[3]);
-    const efmRaw = match[4];
-    const efmStatut: "PRESENT" | "ABSENT" =
-      efmRaw.toLowerCase() === "absent" ? "ABSENT" : "PRESENT";
-    const efm = efmStatut === "ABSENT" ? 0 : parseFloat(efmRaw);
+    // Look for CEF anywhere in the line
+    const cefMatch = trimmed.match(/\b(\d{13,14})\b/);
+    if (!cefMatch) continue;
+
+    const cef = cefMatch[1];
+    const afterCef = trimmed.substring(trimmed.indexOf(cef) + cef.length).trim();
+
+    // Extract all numbers from afterCef
+    const numMatches = afterCef.match(/\b\d+[\.,]?\d*\b/g) ?? [];
+    const numbers = numMatches.map((n) => parseFloat(n.replace(",", ".")));
+
+    // Try to identify CC, EFM, Moyenne from the numbers
+    // Usually there are 3 numbers: CC, EFM, Moy OR just 2: CC, Moy (absent EFM)
+    // Or the word "Absent" appears after CEF
+
+    const isAbsent = /absent/i.test(afterCef);
+
+    // Extract name: text between CEF and first number
+    const firstNumIdx = afterCef.search(/\b\d+[\.,]?\d*\b/);
+    const nomPrenom =
+      firstNumIdx > 0
+        ? afterCef.substring(0, firstNumIdx).trim().replace(/^\d+\s*/, "") // remove leading rank number
+        : afterCef.replace(/\d+[\.,]?\d*/g, "").trim();
+
+    if (numbers.length < 2) {
+      logger.debug({ line: trimmed, cef, reason: "not enough numbers" }, "Skipping line");
+      continue;
+    }
+
+    let cc: number;
+    let efm: number;
+    let efmStatut: "PRESENT" | "ABSENT";
+
+    if (isAbsent) {
+      cc = numbers[0];
+      efm = 0;
+      efmStatut = "ABSENT";
+    } else if (numbers.length >= 3) {
+      // 3+ numbers: could be rank, cc, efm, moy or cc, efm, moy
+      // Check: if first number is small integer (rank), skip it
+      const startIdx = numbers[0] < 50 && numbers[1] <= 20 ? 0 : 0;
+      cc = numbers[startIdx];
+      efm = numbers[startIdx + 1];
+      efmStatut = "PRESENT";
+    } else {
+      // Only 2 numbers: assume CC and EFM
+      cc = numbers[0];
+      efm = numbers[1];
+      efmStatut = "PRESENT";
+    }
+
+    // Validate: CC and EFM should be 0-20
+    if (cc > 20 || efm > 20) {
+      logger.debug({ line: trimmed, cef, cc, efm, reason: "values out of range" }, "Skipping line");
+      continue;
+    }
+
     const moyenneOff = (cc + efm) / 3;
 
-    if (!/^\d{13,14}$/.test(cef)) continue;
+    logger.debug(
+      { cef, nomPrenom, cc, efm, efmStatut, moyenneOff },
+      "Student row parsed"
+    );
 
-    stagiaires.push({
-      cef,
-      nomPrenom,
-      cc,
-      efm,
-      efmStatut,
-      moyenneOff,
-    });
+    stagiaires.push({ cef, nomPrenom, cc, efm, efmStatut, moyenneOff });
   }
 
   logger.info(
-    { groupe, moduleCode, stagiaires: stagiaires.length },
+    {
+      groupe,
+      moduleCode,
+      stagiaires: stagiaires.length,
+      first3Lines: lines.slice(0, 10).join(" | "),
+    },
     "PV EFM parsed"
   );
 
   return {
-    etablissement: etablissementMatch
-      ? etablissementMatch[1].trim()
-      : "Inconnu",
+    etablissement: etablissementMatch ? etablissementMatch[1].trim() : "Inconnu",
     filiere: filiereMatch ? filiereMatch[1].trim() : "",
     anneeFormation: anneeMatch ? anneeMatch[1] : "2025/2026",
     groupe,
@@ -265,8 +419,8 @@ export function parsePvEfmPdf(text: string): PvEfmResult {
     moduleCode,
     moduleIntitule,
     inscrits: inscritMatch ? parseInt(inscritMatch[1]) : 0,
-    presents: inscritMatch ? parseInt(inscritMatch[2]) : 0,
-    absents: inscritMatch ? parseInt(inscritMatch[3]) : 0,
+    presents: presentMatch ? parseInt(presentMatch[1]) : 0,
+    absents: absentMatch ? parseInt(absentMatch[1]) : 0,
     stagiaires,
   };
 }
