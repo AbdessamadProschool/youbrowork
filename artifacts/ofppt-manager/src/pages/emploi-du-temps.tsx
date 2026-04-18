@@ -110,15 +110,6 @@ export default function TimetableGenerator() {
       setSelectedEntity(uniqueFormateurs[0]);
     }
   }, [viewMode, emplois, uniqueGroupes, uniqueFormateurs, selectedEntity]);
-
-  const getWeekDates = () => {
-    const today = new Date();
-    today.setDate(today.getDate() + (1 - today.getDay() + 7) % 7); // Next Monday or today if Monday
-    const monday = new Date(today);
-    const saturday = new Date(today.setDate(today.getDate() + 5));
-    return `Du ${monday.toLocaleDateString("fr-FR")} Au ${saturday.toLocaleDateString("fr-FR")}`;
-  };
-
   const filteredEmplois = emplois?.filter((e) => {
     if (viewMode === "groupe") return e.groupeCode === selectedEntity;
     return e.formateurNom === selectedEntity;
