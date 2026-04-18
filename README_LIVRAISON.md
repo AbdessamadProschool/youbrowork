@@ -1,65 +1,58 @@
-# OFPPT Specs Manager - Guide de Déploiement Client
+# 📦 Guide de Lancement - OFPPT Specs Manager (v4.2)
 
-Ce document explique comment installer et lancer l'application sur votre environnement.
+Ce document contient les instructions nécessaires pour lancer l'application sur votre environnement Docker local.
 
-## Option A : Déploiement avec Docker (Recommandé)
+## 🚀 Prérequis
+- **Docker Desktop** (installé et lancé)
+- **Git** (pour cloner le projet)
 
-### Prérequis
-1.  **Docker Desktop** installé.
-2.  Une **Clé API Gemini**.
+## 🛠️ Installation et Lancement
 
-### Lancement
-1.  Extraire le ZIP.
-2.  Créer un fichier `.env` avec `GEMINI_API_KEY=votre_cle`.
-3.  Lancer : `docker compose up --build -d`
-4.  Synchroniser la base : `docker exec -it ofppt-app pnpm --filter @workspace/db run push`
+1. **Cloner le projet** :
+   ```bash
+   git clone https://github.com/AbdessamadProschool/youbrowork.git
+   cd youbrowork
+   ```
 
-L'application sera sur **http://localhost:3000**.
+2. **Configurer l'environnement** :
+   Copiez le fichier d'exemple et ajoutez votre clé API Gemini (pour l'IA) :
+   ```bash
+   cp .env.example .env
+   ```
 
----
+3. **Lancer avec Docker Compose** :
+   Cette commande construit l'image et lance la base de données + l'application :
+   ```bash
+   docker-compose up -d --build
+   ```
 
-## Option B : Déploiement Manuel (Sans Docker)
+4. **Initialiser la Base de Données** (À faire la première fois uniquement) :
+   Synchronisez le schéma et insérez les données par défaut :
+   ```bash
+   # Synchronisation du schéma
+   docker exec -it ofppt-app pnpm --filter @workspace/db push
+   
+   # Insertion des données essentielles (Etablissements, Salles, Formateurs de test)
+   docker exec -it ofppt-app pnpm --filter @workspace/api-server run seed
+   ```
 
-Si vous ne pouvez pas utiliser Docker, suivez ces étapes sur Windows :
+## 🌐 Accès à l'Application
+Une fois lancé, l'application est accessible aux adresses suivantes :
+- **Interface Utilisateur (Frontend)** : [http://localhost:3000](http://localhost:3000)
+- **Base de données (Interne)** : Accessible via le port `5434` sur localhost (si vous utilisez un client SQL).
 
-### Prérequis
-1.  **Node.js v20+** : [Télécharger ici](https://nodejs.org/)
-2.  **pnpm** : Ouvrez un terminal et tapez `npm install -g pnpm`
-3.  **PostgreSQL** : Installé et actif sur votre machine.
+## 📊 Utilisation du Moteur IA v4.2
+1. Connectez-vous et sélectionnez votre établissement (**CF NAHDA**).
+2. Allez dans l'onglet **Import** pour charger vos fichiers Excel/PDF.
+3. Une fois les données chargées, allez dans **Emploi du Temps**.
+4. Cliquez sur **"Calculer Prédiction Réelle"**.
+5. Utilisez les flèches de navigation pour voir le planning sur les **4 prochaines semaines**.
 
-### Installation et Configuration
-1.  **Base de données** : Créez une base nommée `ofppt_manager` dans votre PostgreSQL.
-2.  **Variables d'env** : Créez un fichier `.env.local` à la racine et copiez-y ceci (adaptez l'URL si besoin) :
-    ```env
-    DATABASE_URL=postgresql://postgres:votre_mot_de_passe@localhost:5432/ofppt_manager
-    PORT=8082
-    GEMINI_API_KEY=votre_cle_api
-    ```
-3.  **Installation** : Ouvrez un terminal dans le dossier et tapez :
-    ```bash
-    pnpm install
-    ```
-
-### Lancement
-Pour lancer le serveur et l'interface en même temps, utilisez simplement le script fourni :
-```powershell
-.\dev.ps1
-```
-
-*Note : La première fois, synchronisez la base avec : `pnpm run db:push`*
-
----
-
-## Maintenance et Logs
-
-
-Pour consulter les logs en temps réel :
-
+## 🛑 Arrêt du projet
+Pour arrêter les services proprement :
 ```bash
-docker compose logs -f app
+docker-compose down
 ```
 
-### Données Techniques
--   **Port Application** : 3000
--   **Port Base de Données** : 5433 (Postgres)
--   **Utilisateurs DB** : postgres / ofppt_pw (configuré dans docker-compose.yml)
+---
+*Développé avec 💚 par l'Expertise Senior QA pour l'OFPPT.*

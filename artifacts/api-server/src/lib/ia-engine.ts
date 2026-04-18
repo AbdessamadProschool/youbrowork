@@ -1,151 +1,117 @@
-import { db, emploisIaTable, formateursTable, sallesTable, avancementsTable, modulesTable, calendriersTable, groupesTable, etablissementsTable } from "@workspace/db";
-import { eq, and, sql, gte } from "drizzle-orm";
+import { db, emploisIaTable, formateursTable, sallesTable, avancementsTable, modulesTable, calendriersTable, groupesTable, etablissementsTable, indisponibilitesTable } from "@workspace/db";
+import { eq, and, sql, gte, lte, or } from "drizzle-orm";
 import crypto from "node:crypto";
 import { suggererOptimisationsIA } from "./gemini";
 import { logger } from "./logger";
 
-// ⚙️ CONFIGURATION DES QUOTAS OFPPT
-const QUOTAS = {
-  VACATAIRE: 26,
-  PERMANENT: 36,
-  DEFAULT: 36
-};
+const QUOTAS = { VACATAIRE: 26, PERMANENT: 36, DEFAULT: 36 };
+const DURATION_PER_SLOT = 2.5;
 
-const DURATION_PER_SLOT = 2.5; // Heures par séance
-
-/**
- * 🚀 MOTEUR DE GÉNÉRATION D'EMPLOIS DU TEMPS IA (OFPPT)
- * Version 4.1 : Sécurisée, Paramétrable et Optimisée
- */
-export async function genererEmploiIA(etablissementId: string) {
+export async function genererEmploiIA(etablissementId: string, weeksCount: number = 4) {
   const anomalies: string[] = [];
   const startTime = Date.now();
   
-  logger.info({ etablissementId }, "Lancement de la régulation IA...");
-
-  // 1. Chargement des Données avec isolation stricte
-  const formateurs = await db.select().from(formateursTable).where(
-    and(
-      eq(formateursTable.desiste, false),
-      eq(formateursTable.etablissementId, etablissementId)
-    )
-  );
-  
+  const formateurs = await db.select().from(formateursTable).where(and(eq(formateursTable.desiste, false), eq(formateursTable.etablissementId, etablissementId)));
   const salles = await db.select().from(sallesTable).where(eq(sallesTable.etablissementId, etablissementId));
-  const avancements = await db.select().from(avancementsTable).where(eq(avancementsTable.etablissementId, etablissementId));
-  const calendriers = await db.select().from(calendriersTable).where(eq(calendriersTable.etablissementId, etablissementId));
+  const avancements = await db.select().from(avancementsTable).where(and(eq(avancementsTable.etablissementId, etablissementId)));
   const groupes = await db.select().from(groupesTable).where(eq(groupesTable.etablissementId, etablissementId));
   const allModules = await db.select().from(modulesTable).where(eq(modulesTable.etablissementId, etablissementId));
+  const indispos = await db.select().from(indisponibilitesTable).where(eq(indisponibilitesTable.etablissementId, etablissementId));
 
-  if (formateurs.length === 0 || salles.length === 0) {
-    return { success: false, count: 0, anomalies: ["Ressources manquantes (Formateurs ou Salles)."], conseils: ["Importez vos ressources via l'onglet Import."] };
-  }
-
-  // 2. Nettoyage de l'existant futur (Isolation Garantie)
   const now = new Date();
-  const dayMap: Record<string, number> = { 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6, 'Sun': 7 };
-  const currentDayStr = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Africa/Casablanca' }).format(now);
-  let startDay = dayMap[currentDayStr] || 1;
-  if (startDay === 7) startDay = 1;
+  const todayStr = now.toISOString().split('T')[0];
+  await db.delete(emploisIaTable).where(and(eq(emploisIaTable.etablissementId, etablissementId), gte(emploisIaTable.date, todayStr)));
 
-  await db.delete(emploisIaTable).where(
-    and(
-      eq(emploisIaTable.etablissementId, etablissementId),
-      gte(emploisIaTable.jourSemaine, startDay)
-    )
-  );
-
-  // 3. Occupation tracking & Quotas
-  const profOccupations = new Set<string>();   
-  const salleOccupations = new Set<string>();  
-  const groupeOccupations = new Set<string>(); 
-  const profWeeklyHours = new Map<string, number>();
-
-  const getQuota = (f: any) => {
-     const type = (f.type || "").toUpperCase();
-     if (type.includes("VACATAIRE")) return QUOTAS.VACATAIRE;
-     return QUOTAS.PERMANENT;
+  const getStartMonday = () => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = day === 0 ? 1 : (day === 1 ? 0 : 8 - day);
+    d.setDate(d.getDate() + diff);
+    d.setHours(12, 0, 0, 0); // Éviter les shifts de minuit
+    return d;
   };
+  const monday = getStartMonday();
 
-  // 4. Initialisation des Groupes Actifs
-  const activeGroupes = groupes.filter(g => g.statut === "Actif");
-  const groupeInfos = activeGroupes.map(groupe => {
+  const SLOTS = [ { debut: "08:30", fin: "11:00" }, { debut: "11:00", fin: "13:30" }, { debut: "13:30", fin: "16:00" }, { debut: "16:00", fin: "18:30" } ];
+  const groupeInfos = groupes.filter(g => g.statut === "Actif").map(groupe => {
      const modules = avancements.filter(a => a.groupeId === groupe.id && (a.tauxReel || 0) < 1.0);
-     return { groupe, modules, moduleIndex: 0 };
+     return { groupe, modules, moduleOffset: 0 };
   }).filter(g => g.modules.length > 0);
-
-  const SLOTS = [
-    { debut: "08:30", fin: "11:00" },
-    { debut: "11:00", fin: "13:30" },
-    { debut: "13:30", fin: "16:00" },
-    { debut: "16:00", fin: "18:30" },
-  ];
 
   const planned: any[] = [];
   const normalization = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-  // 5. Boucle d'Interleaving
-  for (let jour = startDay; jour <= 6; jour++) {
-    for (const slot of SLOTS) {
-      for (const gi of groupeInfos) {
-        if (groupeOccupations.has(`${jour}-${slot.debut}-${gi.groupe.id}`)) continue;
+  for (let w = 0; w < weeksCount; w++) {
+    const profWeeklyHours = new Map<string, number>();
 
-        const currentMod = gi.modules[gi.moduleIndex % gi.modules.length];
-        const mDetails = allModules.find(m => m.id === currentMod.moduleId);
+    for (let dayOffset = 0; dayOffset < 6; dayOffset++) {
+      const currentDayDate = new Date(monday);
+      currentDayDate.setDate(monday.getDate() + (w * 7) + dayOffset);
+      const dateStr = currentDayDate.toISOString().split('T')[0];
 
-        // Matching formateurs
-        const matchingProfs = formateurs.filter(f => {
-           if (profOccupations.has(`${jour}-${slot.debut}-${f.id}`)) return false;
-           const hoursUsed = profWeeklyHours.get(f.id) || 0;
-           if (hoursUsed + DURATION_PER_SLOT > getQuota(f)) return false;
-           
-           const spec = normalization(f.specialite);
-           const modIntitule = normalization(currentMod.moduleIntitule);
-           return modIntitule.includes(spec) || spec === "general";
-        });
+      const profOccupations = new Set<string>();   
+      const salleOccupations = new Set<string>();  
+      const groupeOccupations = new Set<string>(); 
 
-        if (matchingProfs.length === 0) continue;
+      for (const slot of SLOTS) {
+        for (const gi of groupeInfos) {
+          if (groupeOccupations.has(`${slot.debut}-${gi.groupe.id}`)) continue;
 
-        // Choix du prof le moins chargé
-        matchingProfs.sort((a,b) => (profWeeklyHours.get(a.id)||0) - (profWeeklyHours.get(b.id)||0));
-        const prof = matchingProfs[0];
+          let matchFound = false;
+          for (let mIdx = 0; mIdx < gi.modules.length; mIdx++) {
+            const currentMod = gi.modules[(gi.moduleOffset + mIdx) % gi.modules.length];
+            const mDetails = allModules.find(m => m.id === currentMod.moduleId);
 
-        // Salle (simple isolation)
-        const typeRequis = mDetails?.estMetier ? "ATELIER" : "SALLE_COURS";
-        const salle = salles.find(s => s.type === typeRequis && !salleOccupations.has(`${jour}-${slot.debut}-${s.id}`)) 
-                    || salles.find(s => !salleOccupations.has(`${jour}-${slot.debut}-${s.id}`));
+            const matchingProfs = formateurs.filter(f => {
+              if (profOccupations.has(`${slot.debut}-${f.id}`)) return false;
+              const hoursUsed = profWeeklyHours.get(f.id) || 0;
+              const quota = f.type.includes("26") ? QUOTAS.VACATAIRE : QUOTAS.PERMANENT;
+              if (hoursUsed + DURATION_PER_SLOT > quota) return false;
 
-        if (!salle) continue;
+              const spec = normalization(f.specialite);
+              const mIntitule = normalization(currentMod.moduleIntitule);
+              const matchesSpec = mIntitule.includes(spec) || spec === "general" || (mDetails && normalization(mDetails.filiereCode).includes(spec.substring(0,2)));
+              if (!matchesSpec) return false;
 
-        planned.push({
-          id: crypto.randomUUID(),
-          etablissementId,
-          groupeId: gi.groupe.id,
-          formateurId: prof.id,
-          moduleId: currentMod.moduleId,
-          salleId: salle.id,
-          jourSemaine: jour,
-          heureDebut: slot.debut,
-          heureFin: slot.fin,
-          estForcé: true
-        });
+              return !indispos.some(i => i.targetType === "FORMATEUR" && i.targetId === f.id && (currentDayDate >= i.dateDebut && currentDayDate <= i.dateFin));
+            });
 
-        profOccupations.add(`${jour}-${slot.debut}-${prof.id}`);
-        salleOccupations.add(`${jour}-${slot.debut}-${salle.id}`);
-        groupeOccupations.add(`${jour}-${slot.debut}-${gi.groupe.id}`);
-        profWeeklyHours.set(prof.id, (profWeeklyHours.get(prof.id)||0) + DURATION_PER_SLOT);
-        gi.moduleIndex++;
+            if (matchingProfs.length > 0) {
+              matchingProfs.sort((a,b) => (profWeeklyHours.get(a.id)||0) - (profWeeklyHours.get(b.id)||0));
+              const prof = matchingProfs[0];
+              const typeRequis = mDetails?.estMetier ? "ATELIER" : "SALLE_COURS";
+              const salle = salles.find(s => !salleOccupations.has(`${slot.debut}-${s.id}`) && s.type === typeRequis) || salles.find(s => !salleOccupations.has(`${slot.debut}-${s.id}`));
+
+              if (salle) {
+                planned.push({
+                  id: crypto.randomUUID(),
+                  etablissementId,
+                  groupeId: gi.groupe.id,
+                  formateurId: prof.id,
+                  moduleId: currentMod.moduleId,
+                  salleId: salle.id,
+                  jourSemaine: dayOffset + 1,
+                  heureDebut: slot.debut,
+                  heureFin: slot.fin,
+                  date: dateStr,
+                  estForcé: true
+                });
+
+                profOccupations.add(`${slot.debut}-${prof.id}`);
+                salleOccupations.add(`${slot.debut}-${salle.id}`);
+                groupeOccupations.add(`${slot.debut}-${gi.groupe.id}`);
+                profWeeklyHours.set(prof.id, (profWeeklyHours.get(prof.id)||0) + DURATION_PER_SLOT);
+                gi.moduleOffset = (gi.moduleOffset + mIdx + 1) % gi.modules.length;
+                matchFound = true;
+                break;
+              }
+            }
+          }
+        }
       }
     }
   }
 
-  // 6. Persistence et Retour
-  if (planned.length > 0) {
-    await db.insert(emploisIaTable).values(planned);
-  }
-
-  const duration = Date.now() - startTime;
-  logger.info({ count: planned.length, durationMs: duration }, "Génération IA terminée.");
-
-  return { success: true, count: planned.length, anomalies, conseils: ["Optimisation complétée avec succès."] };
+  if (planned.length > 0) await db.insert(emploisIaTable).values(planned);
+  return { success: true, count: planned.length, anomalies, conseils: ["Système adaptatif mis à jour."] };
 }

@@ -26,7 +26,7 @@ services:
     ports:
       - "3000:8082"
     environment:
-      DATABASE_URL: postgresql://postgres:ofppt_pw@db:5432/ofppt_manager
+      DATABASE_URL: postgresql://postgres:ofppt_admin@db:5432/ofppt_manager
       PORT: "8082"
       NODE_ENV: production
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

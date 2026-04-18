@@ -205,6 +205,20 @@ export const emploisIaTable = pgTable("emplois_ia", {
   heureFin: text("heure_fin").notNull(),
   estForcé: boolean("est_force").notNull().default(false), // true si généré cause retard
   etablissementId: text("etablissement_id").notNull(),
+  date: text("date").notNull(), // format "YYYY-MM-DD"
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const indisponibilitesTable = pgTable("indisponibilites", {
+  id: text("id").primaryKey(),
+  targetType: text("target_type").notNull(), // "FORMATEUR" | "SALLE"
+  targetId: text("target_id").notNull(),
+  dateDebut: timestamp("date_debut", { withTimezone: true }).notNull(),
+  dateFin: timestamp("date_fin", { withTimezone: true }).notNull(),
+  motif: text("motif"),
+  etablissementId: text("etablissement_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -226,3 +240,4 @@ export type StagiaireDiscipline = typeof stagiaireDisciplinesTable.$inferSelect;
 export type Formateur = typeof formateursTable.$inferSelect;
 export type Salle = typeof sallesTable.$inferSelect;
 export type EmploiIa = typeof emploisIaTable.$inferSelect;
+export type Indisponibilite = typeof indisponibilitesTable.$inferSelect;

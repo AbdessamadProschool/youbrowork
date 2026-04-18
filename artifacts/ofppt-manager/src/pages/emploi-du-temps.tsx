@@ -49,10 +49,11 @@ interface TimetableEntry {
 
 export default function TimetableGenerator() {
   const [viewMode, setViewMode] = useState<"groupe" | "formateur">("groupe");
-  const [selectedEntity, setSelectedEntity] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiAdvice, setAiAdvice] = useState<string[]>([]);
   const [anomalies, setAnomalies] = useState<string[]>([]);
+  const [selectedEntity, setSelectedEntity] = useState<string>("");
+  const [currentWeekOffset, setCurrentWeekOffset] = useState(0);
   const [etabNom, setEtabNom] = useState("Établissement");
 
   useEffect(() => {
@@ -62,12 +63,34 @@ export default function TimetableGenerator() {
 
   const etabId = localStorage.getItem("selected_etab_id");
 
-  // Data fetching (Strictly Dynamic)
+  // Format dates for display
+  const getWeekDates = (offset: number) => {
+    const now = new Date();
+    // Go to next Monday if offset > 0 or current week if offset=0
+    const d = new Date(now);
+    const day = d.getDay();
+    const diff = (day === 0 ? 1 : 8 - day);
+    const startOfWeek = new Date(d);
+    startOfWeek.setDate(d.getDate() + (day === 0 ? 1 : 1 - day) + (offset * 7));
+    
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 5);
+
+    return { 
+      start: startOfWeek.toISOString().split('T')[0], 
+      end: endOfWeek.toISOString().split('T')[0], 
+      display: `Du ${startOfWeek.toLocaleDateString("fr-FR")} Au ${endOfWeek.toLocaleDateString("fr-FR")}` 
+    };
+  };
+
+  const currentPeriod = getWeekDates(currentWeekOffset);
+
+  // Data fetching (Filtered by Date)
   const { data: emplois, isLoading, refetch } = useQuery<TimetableEntry[]>({
-    queryKey: ["/api/emplois-ia", etabId],
+    queryKey: ["/api/emplois-ia", etabId, currentPeriod.start],
     queryFn: async () => {
       if (!etabId) return [];
-      const res = await fetch("/api/emplois-ia", {
+      const res = await fetch(`/api/emplois-ia?startDate=${currentPeriod.start}&endDate=${currentPeriod.end}`, {
         headers: { "x-etab-id": etabId }
       });
       if (!res.ok) throw new Error("Failed to fetch");
@@ -309,9 +332,17 @@ export default function TimetableGenerator() {
 
                  <div className="flex flex-col items-end gap-2">
                     <div className="h-10 w-auto opacity-80"><OFPPTLogo /></div>
-                    <p className="text-[11px] font-bold text-slate-700 bg-slate-100 border border-slate-200 px-3 py-1 rounded mt-2">
-                       {getWeekDates()}
-                    </p>
+                    <div className="flex justify-center items-center gap-2 bg-slate-100 border border-slate-200 px-3 py-1 rounded">
+                       <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => setCurrentWeekOffset(prev => prev - 1)}>
+                          <ChevronLeft className="h-3 w-3" />
+                       </Button>
+                       <p className="text-[11px] font-bold text-slate-700">
+                          {currentPeriod.display}
+                       </p>
+                       <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => setCurrentWeekOffset(prev => prev + 1)}>
+                          <ChevronRight className="h-3 w-3" />
+                       </Button>
+                    </div>
                  </div>
               </div>
               
