@@ -24,10 +24,21 @@ export const importTypeEnum = pgEnum("import_type_enum", [
   "pv_efm",
 ]);
 
+export const etablissementsTable = pgTable("etablissements", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  nom: text("nom").notNull(),
+  ville: text("ville").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const filieresTable = pgTable("filieres", {
   id: text("id").primaryKey(),
   code: text("code").notNull(),
   nom: text("nom").notNull(),
+  etablissementId: text("etablissement_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -40,6 +51,8 @@ export const modulesTable = pgTable("modules", {
   mhGlobale: integer("mh_globale").notNull(),
   filiereCode: text("filiere_code").notNull(),
   niveau: text("niveau").notNull().default("S"),
+  estMetier: boolean("est_metier").notNull().default(true),
+  etablissementId: text("etablissement_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -47,13 +60,15 @@ export const modulesTable = pgTable("modules", {
 
 export const groupesTable = pgTable("groupes", {
   id: text("id").primaryKey(),
-  code: text("code").notNull().unique(),
+  code: text("code").notNull(),
   annee: integer("annee").notNull(),
   mode: modeEnum("mode").notNull(),
   filiereCode: text("filiere_code").notNull(),
   filiereNom: text("filiere_nom").notNull(),
   statut: text("statut").notNull().default("Actif"),
+  niveau: text("niveau").notNull().default("T"),
   anneeFormation: text("annee_formation").notNull(),
+  etablissementId: text("etablissement_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -65,6 +80,7 @@ export const stagiairesTable = pgTable("stagiaires", {
   nom: text("nom").notNull(),
   prenom: text("prenom").notNull(),
   groupeId: text("groupe_id").notNull(),
+  etablissementId: text("etablissement_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -82,6 +98,7 @@ export const avancementsTable = pgTable("avancements", {
   nbSeancesVal: integer("nb_seances_val").notNull().default(0),
   nbSeancesEnCours: integer("nb_seances_en_cours").notNull().default(0),
   sourceFile: text("source_file").notNull(),
+  etablissementId: text("etablissement_id"),
   importedAt: timestamp("imported_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -142,9 +159,61 @@ export const importLogsTable = pgTable("import_logs", {
     .defaultNow(),
 });
 
+export const formateurTypeEnum = pgEnum("formateur_type_enum", [
+  "CAT_36",
+  "CAT_26",
+  "VACATAIRE_RETRAITE",
+  "VACATAIRE_ACTIF",
+]);
+
+export const salleTypeEnum = pgEnum("salle_type_enum", ["ATELIER", "SALLE_COURS"]);
+
+export const formateursTable = pgTable("formateurs", {
+  id: text("id").primaryKey(),
+  matricule: text("matricule").notNull().unique(),
+  nom: text("nom").notNull(),
+  prenom: text("prenom").notNull(),
+  specialite: text("specialite").notNull(),
+  type: formateurTypeEnum("type").notNull(),
+  optionHeuresSup: boolean("option_heures_sup").notNull().default(false),
+  desiste: boolean("desiste").notNull().default(false),
+  etablissementId: text("etablissement_id"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const sallesTable = pgTable("salles", {
+  id: text("id").primaryKey(),
+  nom: text("nom").notNull().unique(),
+  type: salleTypeEnum("type").notNull(),
+  capacite: integer("capacite").notNull().default(30),
+  etablissementId: text("etablissement_id"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const emploisIaTable = pgTable("emplois_ia", {
+  id: text("id").primaryKey(),
+  groupeId: text("groupe_id").notNull(),
+  formateurId: text("formateur_id"),
+  moduleId: text("module_id").notNull(),
+  salleId: text("salle_id"),
+  jourSemaine: integer("jour_semaine").notNull(), // 1=Lundi, 6=Samedi
+  heureDebut: text("heure_debut").notNull(), // format "HH:mm"
+  heureFin: text("heure_fin").notNull(),
+  estForcé: boolean("est_force").notNull().default(false), // true si généré cause retard
+  etablissementId: text("etablissement_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const insertGroupeSchema = createInsertSchema(groupesTable).omit({
   createdAt: true,
 });
+export type Etablissement = typeof etablissementsTable.$inferSelect;
 export type InsertGroupe = z.infer<typeof insertGroupeSchema>;
 export type Groupe = typeof groupesTable.$inferSelect;
 export type Stagiaire = typeof stagiairesTable.$inferSelect;
@@ -154,3 +223,6 @@ export type Calendrier = typeof calendriersTable.$inferSelect;
 export type ImportLog = typeof importLogsTable.$inferSelect;
 export type Module = typeof modulesTable.$inferSelect;
 export type StagiaireDiscipline = typeof stagiaireDisciplinesTable.$inferSelect;
+export type Formateur = typeof formateursTable.$inferSelect;
+export type Salle = typeof sallesTable.$inferSelect;
+export type EmploiIa = typeof emploisIaTable.$inferSelect;

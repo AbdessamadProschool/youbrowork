@@ -7,11 +7,94 @@ import {
   avancementsTable,
   notesModuleTable,
   calendriersTable,
+  formateursTable,
+  sallesTable,
+  etablissementsTable,
+  filieresTable,
 } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 
 async function seed() {
-  console.log("Seeding database…");
+  console.log("Seeding database with Multi-Establishment support…");
+
+  // ETABLISSEMENT SEED
+  const etabId = randomUUID();
+  const etabCheck = await db.select().from(etablissementsTable).limit(1);
+  if (etabCheck.length === 0) {
+    await db.insert(etablissementsTable).values({
+      id: etabId,
+      code: "CF_SAMMARA",
+      nom: "Complexe de Formation Sammara",
+      ville: "Sammara"
+    });
+    console.log("Inserted default establishment: CF SAMMARA");
+  } else {
+    // Re-use existing for seeding consistency
+    const existingEtab = etabCheck[0].id;
+    console.log("Using existing establishment:", etabCheck[0].nom);
+  }
+
+  const activeEtabId = etabCheck.length > 0 ? etabCheck[0].id : etabId;
+
+  // FILIERE SEED
+  const filiereCheck = await db.select().from(filieresTable).where(eq(filieresTable.code, "EB")).limit(1);
+  if (filiereCheck.length === 0) {
+    await db.insert(filieresTable).values({
+      id: randomUUID(),
+      code: "EB",
+      nom: "Electricité de Bâtiment",
+      etablissementId: activeEtabId
+    });
+  }
+
+  // FORMATEURS SEED
+  const formCount = await db.select().from(formateursTable).then(r => r.length);
+  if (formCount === 0) {
+    await db.insert(formateursTable).values([
+      {
+        id: randomUUID(),
+        matricule: "F001",
+        nom: "CHATTAR",
+        prenom: "Abdessamad",
+        specialite: "Electrique",
+        type: "CAT_36",
+        optionHeuresSup: true,
+        etablissementId: activeEtabId
+      },
+      {
+        id: randomUUID(),
+        matricule: "F002",
+        nom: "MEHDAOUI",
+        prenom: "Driss",
+        specialite: "Electrique",
+        type: "CAT_26",
+        optionHeuresSup: false,
+        etablissementId: activeEtabId
+      },
+      {
+        id: randomUUID(),
+        matricule: "V001",
+        nom: "RACHIDA",
+        prenom: "Nadia",
+        specialite: "EGQ",
+        type: "VACATAIRE_ACTIF",
+        etablissementId: activeEtabId
+      }
+    ]);
+    console.log("Inserted formateurs linked to", activeEtabId);
+  }
+
+  // SALLES SEED
+  const salleCount = await db.select().from(sallesTable).then(r => r.length);
+  if (salleCount === 0) {
+    await db.insert(sallesTable).values([
+      { id: randomUUID(), nom: "AT ELEC 1", type: "ATELIER", capacite: 25, etablissementId: activeEtabId },
+      { id: randomUUID(), nom: "AT ELEC 2", type: "ATELIER", capacite: 25, etablissementId: activeEtabId },
+      { id: randomUUID(), nom: "Salle 102", type: "SALLE_COURS", capacite: 30, etablissementId: activeEtabId },
+      { id: randomUUID(), nom: "Salle de Dessin", type: "SALLE_COURS", capacite: 20, etablissementId: activeEtabId },
+    ]);
+    console.log("Inserted salles linked to", activeEtabId);
+  }
 
   const calCount = await db
     .select()
@@ -37,10 +120,10 @@ async function seed() {
   const existing = await db
     .select()
     .from(groupesTable)
-    .where(eq(groupesTable.code, "EB101"));
+    .where(and(eq(groupesTable.code, "EB101"), eq(groupesTable.etablissementId, activeEtabId)));
 
   if (existing.length > 0) {
-    console.log("Seed data already present, skipping.");
+    console.log("Seed data already present for this etab, skipping.");
     return;
   }
 
@@ -54,6 +137,7 @@ async function seed() {
     filiereNom: "Electricité de Bâtiment",
     statut: "Actif",
     anneeFormation: "2025/2026",
+    etablissementId: activeEtabId
   });
   console.log("Inserted groupe EB101");
 
@@ -67,6 +151,8 @@ async function seed() {
       mhGlobale: 70,
       filiereCode: "EB",
       niveau: "S",
+      estMetier: true,
+      etablissementId: activeEtabId
     },
     {
       id: m102Id,
@@ -75,6 +161,8 @@ async function seed() {
       mhGlobale: 42,
       filiereCode: "EB",
       niveau: "S",
+      estMetier: false,
+      etablissementId: activeEtabId
     },
   ]);
   console.log("Inserted modules M101, M102");
@@ -92,6 +180,7 @@ async function seed() {
       nbSeancesVal: 5,
       nbSeancesEnCours: 0,
       sourceFile: "seed",
+      etablissementId: activeEtabId,
       importedAt: new Date(),
     },
     {
@@ -106,6 +195,7 @@ async function seed() {
       nbSeancesVal: 4,
       nbSeancesEnCours: 1,
       sourceFile: "seed",
+      etablissementId: activeEtabId,
       importedAt: new Date(),
     },
   ]);
@@ -186,6 +276,7 @@ async function seed() {
       nom: s.nom,
       prenom: s.prenom,
       groupeId,
+      etablissementId: activeEtabId
     });
 
     const nm101 = notesM101[i];

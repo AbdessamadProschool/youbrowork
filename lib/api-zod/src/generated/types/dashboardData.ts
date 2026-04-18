@@ -8,6 +8,26 @@
 import type { Alerte } from "./alerte";
 import type { ImportLog } from "./importLog";
 
+export interface GroupeStat {
+  code: string;
+  annee: number;
+  filiere: string;
+  tauxMoyen: number;
+  tauxTheorique: number;
+  modulesValides: number;
+  modulesTotal: number;
+}
+
+export interface AnneeStat {
+  annee: number;
+  label: string;
+  taux: number;
+  tauxTheorique: number;
+  nbGroupes: number;
+  modulesValides: number;
+  modulesTotal: number;
+}
+
 export interface DashboardData {
   groupesActifs: number;
   tauxMoyen: number;
@@ -16,6 +36,11 @@ export interface DashboardData {
   alertesCritiques: number;
   modulesValides: number;
   modulesTotal: number;
+  modulesTermines: number;
+  modulesAvecExamen: number;
+  tauxExamen: number;
+  parGroupe: GroupeStat[];
+  parAnnee: AnneeStat[];
   topAlerts: Alerte[];
   recentImports: ImportLog[];
 }

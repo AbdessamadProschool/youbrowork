@@ -1,0 +1,38 @@
+services:
+  # ── Base de données PostgreSQL ──
+  db:
+    image: postgres:16-alpine
+    container_name: ofppt-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ofppt_manager
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ofppt_admin
+    ports:
+      - "5434:5432"
+    volumes:
+      - ofppt_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ofppt_manager"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Application OFPPT Manager ──
+  app:
+    build: .
+    container_name: ofppt-app
+    restart: unless-stopped
+    ports:
+      - "3000:8082"
+    environment:
+      DATABASE_URL: postgresql://postgres:ofppt_pw@db:5432/ofppt_manager
+      PORT: "8082"
+      NODE_ENV: production
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  ofppt_pgdata:

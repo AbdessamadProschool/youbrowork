@@ -8,8 +8,8 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "push": "node --env-file=../../.env.local --env-file=../../.env -e \"import('node:child_process').then(cp => cp.execSync('drizzle-kit push --config ./drizzle.config.ts', {stdio:'inherit', env: process.env}))\"",
+    "push-force": "node --env-file=../../.env.local --env-file=../../.env -e \"import('node:child_process').then(cp => cp.execSync('drizzle-kit push --force --config ./drizzle.config.ts', {stdio:'inherit', env: process.env}))\""
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

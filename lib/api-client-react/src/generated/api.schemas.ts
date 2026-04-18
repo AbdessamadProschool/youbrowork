@@ -33,6 +33,10 @@ export interface Alerte {
   entityId: string;
   entityLabel: string;
   createdAt: string;
+  groupeCode?: string;
+  anneeFormation?: string;
+  filiereCode?: string;
+  filiereNom?: string;
 }
 
 export interface ImportLog {
@@ -46,6 +50,26 @@ export interface ImportLog {
   createdAt: string;
 }
 
+export interface GroupeStat {
+  code: string;
+  annee: number;
+  filiere: string;
+  tauxMoyen: number;
+  tauxTheorique: number;
+  modulesValides: number;
+  modulesTotal: number;
+}
+
+export interface AnneeStat {
+  annee: number;
+  label: string;
+  taux: number;
+  tauxTheorique: number;
+  nbGroupes: number;
+  modulesValides: number;
+  modulesTotal: number;
+}
+
 export interface DashboardData {
   groupesActifs: number;
   tauxMoyen: number;
@@ -54,6 +78,12 @@ export interface DashboardData {
   alertesCritiques: number;
   modulesValides: number;
   modulesTotal: number;
+  modulesTermines: number;
+  modulesAvecExamen: number;
+  tauxExamen: number;
+  tauxReussite: number;
+  parGroupe: GroupeStat[];
+  parAnnee: AnneeStat[];
   topAlerts: Alerte[];
   recentImports: ImportLog[];
 }
@@ -233,6 +263,8 @@ export type GetGroupesParams = {
 export type GetStagiairesParams = {
   groupeId?: string;
   search?: string;
+  annee?: number;
+  filiere?: string;
 };
 
 export type GetAlertesParams = {

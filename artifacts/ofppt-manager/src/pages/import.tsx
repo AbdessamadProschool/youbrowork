@@ -1,14 +1,16 @@
-import { useImportFile, useGetImportLogs, getGetImportLogsQueryKey, ImportFileBodyType } from "@workspace/api-client-react";
+import { useImportFile, useGetImportLogs, getGetImportLogsQueryKey, ImportFileBodyType, useGetGroupes } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { UploadCloud, FileSpreadsheet, FileText, CheckCircle2, AlertCircle, Clock } from "lucide-react";
-import { useState, useRef, ChangeEvent } from "react";
+import { UploadCloud, FileSpreadsheet, FileText, CheckCircle2, AlertCircle, Clock, Filter } from "lucide-react";
+import { useState, useRef, ChangeEvent, useMemo } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function ImportPage() {
   const queryClient = useQueryClient();
@@ -19,6 +21,23 @@ export default function ImportPage() {
 
   const importMutation = useImportFile();
   const { data: logs, isLoading: isLogsLoading } = useGetImportLogs();
+  const { data: groupesData } = useGetGroupes();
+  const [importResult, setImportResult] = useState<{ success: boolean; message?: string; warnings?: string[]; errors?: string[]; imported?: number } | null>(null);
+  const [selectedFiliere, setSelectedFiliere] = useState<string>("all");
+  const [selectedGroupe, setSelectedGroupe] = useState<string>("all");
+  const [selectedNiveau, setSelectedNiveau] = useState<string>("T");
+  const [loading, setLoading] = useState(false);
+
+  const filieres = useMemo(() => {
+    if (!groupesData) return [];
+    return [...new Set(groupesData.map(g => g.filiereCode))].sort();
+  }, [groupesData]);
+
+  const filteredGroupes = useMemo(() => {
+    if (!groupesData) return [];
+    if (selectedFiliere === "all") return groupesData;
+    return groupesData.filter(g => g.filiereCode === selectedFiliere);
+  }, [groupesData, selectedFiliere]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -44,30 +63,78 @@ export default function ImportPage() {
     }
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!file) return;
+    setImportResult(null);
 
-    importMutation.mutate({
-      data: {
-        file: file,
-        type: type
+    if (type === 'pv_efm' && selectedGroupe === 'all') {
+      toast.error("Veuillez sélectionner un groupe ou une filière pour l'import d'un PV de note.");
+      return;
+    }
+
+    setLoading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', type);
+    if (selectedGroupe && selectedGroupe !== 'all') formData.append('groupeId', selectedGroupe);
+    if (type === 'etat') formData.append('niveau', selectedNiveau);
+
+    // DEBUG ALERT
+    if (type === 'etat') {
+      console.log("Envoi du niveau au serveur:", selectedNiveau);
+    }
+
+    try {
+      const headers: Record<string, string> = {};
+      const etabId = localStorage.getItem("selected_etab_id");
+      if (etabId) {
+        headers["x-etab-id"] = etabId;
       }
-    }, {
-      onSuccess: (res) => {
-        toast.success("Import réussi", {
-          description: `${res.imported} lignes traitées avec succès.`
+
+      const response = await fetch('/api/import', {
+        method: 'POST',
+        body: formData,
+        headers,
+      });
+
+      const res = await response.json();
+
+      if (response.ok) {
+        setImportResult({
+          success: res.success,
+          message: res.message,
+          warnings: res.warnings,
+          errors: res.errors,
+          imported: res.imported,
         });
-        setFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        queryClient.invalidateQueries({ queryKey: getGetImportLogsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: ['/api/dashboard'] });
-      },
-      onError: (err) => {
-        toast.error("Erreur d'import", {
-          description: "Une erreur est survenue lors du traitement du fichier."
-        });
+
+        if (res.success) {
+          toast.success(res.message || "Import réussi", {
+            description: `${res.imported} ligne${res.imported !== 1 ? "s" : ""} traitée${res.imported !== 1 ? "s" : ""} avec succès.`
+          });
+          setFile(null);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+          
+          await queryClient.invalidateQueries();
+        } else {
+          toast.error("Import échoué", {
+            description: res.message || res.errors?.[0] || "Module ou données introuvables."
+          });
+        }
+      } else {
+        throw new Error(res.error || "Erreur serveur");
       }
-    });
+    } catch (err: any) {
+      setImportResult({ 
+        success: false, 
+        message: err.message || "Erreur réseau ou serveur inaccessible." 
+      });
+      toast.error("Erreur d'import", {
+        description: err.message || "Le serveur n'a pas pu traiter le fichier."
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getTypeLabel = (t: string) => {
@@ -109,6 +176,70 @@ export default function ImportPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {type === 'pv_efm' && (
+              <div className="p-3 bg-[#00a651]/5 border border-[#00a651]/20 rounded-lg space-y-3 animate-in slide-in-from-top-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#00a651] mb-1">
+                  <Filter className="h-3 w-3" />
+                  SÉLECTION OBLIGATOIRE POUR PV DE NOTE
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Filière</Label>
+                    <Select value={selectedFiliere} onValueChange={(v) => { setSelectedFiliere(v); setSelectedGroupe("all"); }}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Filière" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Toutes</SelectItem>
+                        {filieres.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Groupe</Label>
+                    <Select value={selectedGroupe} onValueChange={setSelectedGroupe}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Groupe" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Choisir...</SelectItem>
+                        {filteredGroupes.map(g => <SelectItem key={g.id} value={g.id}>{g.code}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {type === 'etat' && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-3 animate-in slide-in-from-top-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-primary mb-1">
+                  <Filter className="h-3 w-3" />
+                  PARAMÈTRES D'IMPORTATION
+                </div>
+                
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Niveau des groupes dans ce fichier</Label>
+                  <Select value={selectedNiveau} onValueChange={setSelectedNiveau}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Niveau" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="T">Technicien</SelectItem>
+                      <SelectItem value="TS">Technicien Spécialisé</SelectItem>
+                      <SelectItem value="S">Spécialisation (Règle 2ème année)</SelectItem>
+                      <SelectItem value="Q">Qualification</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Note: Le niveau 'S' appliquera les règles de calcul de la 2ème année pour le taux théorique.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div 
               className={cn(
@@ -163,24 +294,42 @@ export default function ImportPage() {
 
             <Button 
               className="w-full" 
-              disabled={!file || importMutation.isPending}
+              disabled={!file || loading}
               onClick={handleImport}
               data-testid="btn-import"
             >
-              {importMutation.isPending ? "Importation en cours..." : "Démarrer l'importation"}
+              {loading ? "Importation en cours..." : "Démarrer l'importation"}
             </Button>
             
-            {importMutation.isError && (
-              <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md flex items-center gap-2">
-                <AlertCircle className="h-4 w-4" />
-                Erreur lors de l'importation. Veuillez vérifier le format du fichier.
+            {importResult && !importResult.success && (
+              <div className="space-y-2">
+                <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-semibold">Import échoué</p>
+                    <p>{importResult.message || importResult.errors?.[0]}</p>
+                  </div>
+                </div>
+                {importResult.warnings && importResult.warnings.length > 0 && (
+                  <div className="p-3 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm rounded-md space-y-1">
+                    {importResult.warnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
+                  </div>
+                )}
               </div>
             )}
-            
-            {importMutation.isSuccess && (
-              <div className="p-3 bg-success/10 text-success text-sm rounded-md flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4" />
-                Importation réussie avec succès.
+
+            {importResult?.success && (
+              <div className="space-y-2">
+                <div className="p-3 bg-success/10 text-success text-sm rounded-md flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4" />
+                  {importResult.message || `${importResult.imported} lignes importées.`}
+                </div>
+                {importResult.warnings && importResult.warnings.length > 0 && (
+                  <div className="p-3 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm rounded-md space-y-1">
+                    <p className="font-semibold text-xs uppercase tracking-wide">Avertissements</p>
+                    {importResult.warnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

@@ -1,87 +1,70 @@
 import { db } from "@workspace/db";
-import { calendriersTable } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { calendriersTable, groupesTable } from "@workspace/db";
+import { sql, eq } from "drizzle-orm";
 
 /**
  * Selects the correct tauxTheorique for a groupe based on its année and mode.
- *
- * Priority (Résidentiel groups):
- *   annee 1  →  "1A-CDJ (Résidentiel-passage)"  (fallback: any "1A-CDJ%")
- *   annee 2  →  "2A-CDJ (Résidentiel-Fin de formation)"  (fallback: any "2A-CDJ%Résidentiel%")
- *
- * FPA groups:
- *   annee 2  →  "2A-CDJ (FPA-Fin de formation)"  (fallback: any "2A-CDJ%FPA%")
+ * 
+ * REGLE STRICTE:
+ * - Niveau 'S' (Spécialisation) ou Année 2 Réelle -> Utilise le calendrier "2A-CDJ"
+ * - Tout le reste (T, TS, Q) -> Utilise son année réelle (1A ou 2A)
  */
 export async function getCalendrierForGroupe(
+  id: string,
   annee: number,
   mode: string
 ): Promise<{ tauxTheorique: number; typeCalendrier: string } | null> {
+  const [groupe] = await db.select().from(groupesTable).where(eq(groupesTable.id, id));
+  
+  // REGLE: Seul 'S' ou une 2ème année réelle déclenchent la règle 2A
+  const effectiveAnnee = (groupe?.niveau === "S" || annee === 2) ? 2 : 1;
   const isResidentiel = mode.startsWith("R_");
-  const prefix = annee === 1 ? "1A-CDJ" : "2A-CDJ";
+  const prefix = effectiveAnnee === 1 ? "1A-CDJ" : "2A-CDJ";
 
-  // Fetch all rows, most recent first
   const rows = await db
     .select()
     .from(calendriersTable)
     .orderBy(sql`${calendriersTable.importedAt} DESC`);
 
-  // All rows matching this année prefix
-  const matching = rows.filter((r) =>
+  const matching = rows.filter((r: any) =>
     r.typeCalendrier.trim().startsWith(prefix)
   );
 
   if (matching.length === 0) {
-    // Absolute fallback: most recent row of any type
-    return rows.length > 0
-      ? { tauxTheorique: rows[0].tauxTheorique, typeCalendrier: rows[0].typeCalendrier }
-      : null;
+    // Sécurité: Si pas de calendrier pour cette année, on ne "triche" pas.
+    return null;
   }
 
-  // ── 1ère année ────────────────────────────────────────────────────────────
-  if (annee === 1) {
-    // Prefer "1A-CDJ (Résidentiel-passage)" — exact or partial match
-    const preferred = matching.find(
-      (r) =>
-        r.typeCalendrier.includes("ésidentiel") &&
-        r.typeCalendrier.toLowerCase().includes("passage")
+  // 1ère année
+  if (effectiveAnnee === 1) {
+    const preferred = matching.find((r: any) =>
+      r.typeCalendrier.includes("ésidentiel") &&
+      r.typeCalendrier.toLowerCase().includes("passage")
     );
-    if (preferred)
-      return { tauxTheorique: preferred.tauxTheorique, typeCalendrier: preferred.typeCalendrier };
-
-    // Fallback: any 1A-CDJ row (most recent)
+    if (preferred) return { tauxTheorique: preferred.tauxTheorique, typeCalendrier: preferred.typeCalendrier };
     return { tauxTheorique: matching[0].tauxTheorique, typeCalendrier: matching[0].typeCalendrier };
   }
 
-  // ── 2ème année ────────────────────────────────────────────────────────────
+  // 2ème année
   if (isResidentiel) {
-    // Prefer "2A-CDJ (Résidentiel-Fin de formation)"
-    const preferred = matching.find(
-      (r) =>
-        r.typeCalendrier.includes("ésidentiel") &&
-        r.typeCalendrier.toLowerCase().includes("fin")
+    const preferred = matching.find((r: any) =>
+      r.typeCalendrier.includes("ésidentiel") &&
+      r.typeCalendrier.toLowerCase().includes("fin")
     );
-    if (preferred)
-      return { tauxTheorique: preferred.tauxTheorique, typeCalendrier: preferred.typeCalendrier };
-
-    // Fallback: any 2A-CDJ Résidentiel row
-    const resid = matching.find((r) => r.typeCalendrier.includes("ésidentiel"));
-    if (resid)
-      return { tauxTheorique: resid.tauxTheorique, typeCalendrier: resid.typeCalendrier };
+    if (preferred) return { tauxTheorique: preferred.tauxTheorique, typeCalendrier: preferred.typeCalendrier };
+    
+    const resid = matching.find((r: any) => r.typeCalendrier.includes("ésidentiel"));
+    if (resid) return { tauxTheorique: resid.tauxTheorique, typeCalendrier: resid.typeCalendrier };
   } else {
-    // FPA: prefer "2A-CDJ (FPA-Fin de formation)"
-    const preferred = matching.find(
-      (r) =>
-        r.typeCalendrier.toUpperCase().includes("FPA") &&
-        r.typeCalendrier.toLowerCase().includes("fin")
+    const preferred = matching.find((r: any) =>
+      r.typeCalendrier.toUpperCase().includes("FPA") &&
+      r.typeCalendrier.toLowerCase().includes("fin")
     );
-    if (preferred)
-      return { tauxTheorique: preferred.tauxTheorique, typeCalendrier: preferred.typeCalendrier };
+    if (preferred) return { tauxTheorique: preferred.tauxTheorique, typeCalendrier: preferred.typeCalendrier };
 
-    const fpa = matching.find((r) => r.typeCalendrier.toUpperCase().includes("FPA"));
-    if (fpa)
-      return { tauxTheorique: fpa.tauxTheorique, typeCalendrier: fpa.typeCalendrier };
+    const fpa = matching.find((r: any) => r.typeCalendrier.toUpperCase().includes("FPA"));
+    if (fpa) return { tauxTheorique: fpa.tauxTheorique, typeCalendrier: fpa.typeCalendrier };
   }
 
-  // Fallback: most recent matching row
   return { tauxTheorique: matching[0].tauxTheorique, typeCalendrier: matching[0].typeCalendrier };
 }

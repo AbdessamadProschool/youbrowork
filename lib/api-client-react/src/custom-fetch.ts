@@ -358,6 +358,15 @@ export async function customFetch<T = unknown>(
     }
   }
 
+  // Multi-tenant: automatically attach the selected establishment ID
+  // so all API calls are scoped to the active establishment.
+  if (!headers.has("x-etab-id") && typeof localStorage !== "undefined") {
+    const etabId = localStorage.getItem("selected_etab_id");
+    if (etabId) {
+      headers.set("x-etab-id", etabId);
+    }
+  }
+
   const requestInfo = { method, url: resolveUrl(input) };
 
   const response = await fetch(input, { ...init, method, headers });

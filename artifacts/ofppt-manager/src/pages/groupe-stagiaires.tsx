@@ -7,11 +7,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { ChevronLeft } from "lucide-react";
 import { AlertBadge } from "@/components/ui/alert-badge";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 export default function GroupeStagiaires() {
   const params = useParams();
   const id = params.id as string;
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
   
   const { data: groupe, isLoading: isGroupeLoading } = useGetGroupe(id, { query: { enabled: !!id, queryKey: getGetGroupeQueryKey(id) } });
   const { data: stagiaires, isLoading: isStagiairesLoading } = useGetGroupeStagiaires(id, { query: { enabled: !!id, queryKey: getGetGroupeStagiairesQueryKey(id) } });
@@ -26,6 +30,8 @@ export default function GroupeStagiaires() {
     });
   });
   const modules = Array.from(modulesSet.values()).sort((a, b) => a.code.localeCompare(b.code));
+  const totalStagiaires = stagiaires?.length ?? 0;
+  const paginated = stagiaires?.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) ?? [];
 
   if (isLoading) {
     return (
@@ -76,7 +82,7 @@ export default function GroupeStagiaires() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {stagiaires?.map((stagiaire) => (
+              {paginated.map((stagiaire) => (
                 <TableRow key={stagiaire.id} className="group">
                   <TableCell className="font-mono text-muted-foreground">{stagiaire.rang || '-'}</TableCell>
                   <TableCell className="font-mono text-xs">
@@ -121,7 +127,7 @@ export default function GroupeStagiaires() {
                   })}
                 </TableRow>
               ))}
-              {(!stagiaires || stagiaires.length === 0) && (
+              {paginated.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5 + modules.length} className="h-24 text-center text-muted-foreground">
                     Aucun stagiaire trouvé
@@ -130,6 +136,14 @@ export default function GroupeStagiaires() {
               )}
             </TableBody>
           </Table>
+          {totalStagiaires > PAGE_SIZE && (
+            <PaginationBar
+              page={page}
+              pageSize={PAGE_SIZE}
+              total={totalStagiaires}
+              onPageChange={setPage}
+            />
+          )}
         </CardContent>
       </Card>
     </div>

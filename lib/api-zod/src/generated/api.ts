@@ -25,6 +25,32 @@ export const GetDashboardResponse = zod.object({
   alertesCritiques: zod.number(),
   modulesValides: zod.number(),
   modulesTotal: zod.number(),
+  modulesTermines: zod.number(),
+  modulesAvecExamen: zod.number(),
+  tauxExamen: zod.number(),
+  tauxReussite: zod.number(),
+  parGroupe: zod.array(
+    zod.object({
+      code: zod.string(),
+      annee: zod.number(),
+      filiere: zod.string(),
+      tauxMoyen: zod.number(),
+      tauxTheorique: zod.number(),
+      modulesValides: zod.number(),
+      modulesTotal: zod.number(),
+    }),
+  ),
+  parAnnee: zod.array(
+    zod.object({
+      annee: zod.number(),
+      label: zod.string(),
+      taux: zod.number(),
+      tauxTheorique: zod.number(),
+      nbGroupes: zod.number(),
+      modulesValides: zod.number(),
+      modulesTotal: zod.number(),
+    }),
+  ),
   topAlerts: zod.array(
     zod.object({
       id: zod.string(),
@@ -209,6 +235,100 @@ export const GetGroupeStagiairesResponseItem = zod.object({
   ),
   rang: zod.number().nullish(),
 });
+
+/**
+ * @summary Get a stagiaire by CEF
+ */
+export const GetStagiaireParams = zod.object({
+  cef: zod.coerce.string(),
+});
+
+export const GetStagiaireResponse = zod.object({
+  id: zod.string(),
+  cef: zod.string(),
+  nom: zod.string(),
+  prenom: zod.string(),
+  nomComplet: zod.string(),
+  groupeId: zod.string(),
+  groupeCode: zod.string(),
+  moyenneGenerale: zod.number().nullish(),
+  notes: zod.array(
+    zod.object({
+      id: zod.string(),
+      moduleCode: zod.string(),
+      moduleIntitule: zod.string(),
+      cc: zod.number(),
+      efm: zod.number(),
+      efmStatut: zod.enum(["PRESENT", "ABSENT"]),
+      moyenneOff: zod.number(),
+      moyenneNorm: zod.number(),
+      valide: zod.boolean(),
+      sourceFile: zod.string(),
+      importedAt: zod.string(),
+    }),
+  ),
+  alertes: zod.array(
+    zod.object({
+      id: zod.string(),
+      niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
+      message: zod.string(),
+      entity: zod.enum(["stagiaire", "groupe"]),
+      entityId: zod.string(),
+      entityLabel: zod.string(),
+      createdAt: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary List all stagiaires
+ */
+export const GetStagiairesQueryParams = zod.object({
+  groupeId: zod.coerce.string().optional(),
+  search: zod.coerce.string().optional(),
+  annee: zod.coerce.number().optional(),
+  filiere: zod.coerce.string().optional(),
+});
+
+export const GetStagiairesResponseItem = zod.object({
+  id: zod.string(),
+  cef: zod.string(),
+  nom: zod.string(),
+  prenom: zod.string(),
+  nomComplet: zod.string(),
+  groupeId: zod.string(),
+  groupeCode: zod.string(),
+  moyenneGenerale: zod.number().nullish(),
+  notes: zod.array(
+    zod.object({
+      id: zod.string(),
+      moduleCode: zod.string(),
+      moduleIntitule: zod.string(),
+      cc: zod.number(),
+      efm: zod.number(),
+      efmStatut: zod.enum(["PRESENT", "ABSENT"]),
+      moyenneOff: zod.number(),
+      moyenneNorm: zod.number(),
+      valide: zod.boolean(),
+      sourceFile: zod.string(),
+      importedAt: zod.string(),
+    }),
+  ),
+  alertes: zod.array(
+    zod.object({
+      id: zod.string(),
+      niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
+      message: zod.string(),
+      entity: zod.enum(["stagiaire", "groupe"]),
+      entityId: zod.string(),
+      entityLabel: zod.string(),
+      createdAt: zod.string(),
+    }),
+  ),
+  rang: zod.number().nullish(),
+});
+export const GetStagiairesResponse = zod.array(GetStagiairesResponseItem);
+
 export const GetGroupeStagiairesResponse = zod.array(
   GetGroupeStagiairesResponseItem,
 );
@@ -260,53 +380,6 @@ export const GetStagiaireNotesResponse = zod.object({
 });
 
 /**
- * @summary List all stagiaires
- */
-export const GetStagiairesQueryParams = zod.object({
-  groupeId: zod.coerce.string().optional(),
-  search: zod.coerce.string().optional(),
-});
-
-export const GetStagiairesResponseItem = zod.object({
-  id: zod.string(),
-  cef: zod.string(),
-  nom: zod.string(),
-  prenom: zod.string(),
-  nomComplet: zod.string(),
-  groupeId: zod.string(),
-  groupeCode: zod.string(),
-  moyenneGenerale: zod.number().nullish(),
-  notes: zod.array(
-    zod.object({
-      id: zod.string(),
-      moduleCode: zod.string(),
-      moduleIntitule: zod.string(),
-      cc: zod.number(),
-      efm: zod.number(),
-      efmStatut: zod.enum(["PRESENT", "ABSENT"]),
-      moyenneOff: zod.number(),
-      moyenneNorm: zod.number(),
-      valide: zod.boolean(),
-      sourceFile: zod.string(),
-      importedAt: zod.string(),
-    }),
-  ),
-  alertes: zod.array(
-    zod.object({
-      id: zod.string(),
-      niveau: zod.enum(["disciplinaire", "critique", "warning", "anomalie"]),
-      message: zod.string(),
-      entity: zod.enum(["stagiaire", "groupe"]),
-      entityId: zod.string(),
-      entityLabel: zod.string(),
-      createdAt: zod.string(),
-    }),
-  ),
-  rang: zod.number().nullish(),
-});
-export const GetStagiairesResponse = zod.array(GetStagiairesResponseItem);
-
-/**
  * @summary List all modules
  */
 export const GetModulesResponseItem = zod.object({
@@ -335,6 +408,10 @@ export const GetAlertesResponseItem = zod.object({
   entityId: zod.string(),
   entityLabel: zod.string(),
   createdAt: zod.string(),
+  groupeCode: zod.string().optional(),
+  anneeFormation: zod.string().optional(),
+  filiereCode: zod.string().optional(),
+  filiereNom: zod.string().optional(),
 });
 export const GetAlertesResponse = zod.array(GetAlertesResponseItem);
 

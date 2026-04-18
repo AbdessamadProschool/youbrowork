@@ -1,7 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
 import { randomUUID } from "crypto";
-// Use the internal lib to bypass the test-file read that runs at module init
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfParse: (buf: Buffer) => Promise<{ text: string }> = require("pdf-parse/lib/pdf-parse.js");
 import { db } from "@workspace/db";
@@ -20,7 +19,7 @@ import {
   parseCalendrierXlsx,
   parsePvEfmPdf,
 } from "../lib/parsers";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -34,6 +33,7 @@ router.post(
   upload.single("file"),
   async (req, res): Promise<void> => {
     const startTime = Date.now();
+    const etablissementId = (req as any).etabId; // Injected by tenantGuard
 
     if (!req.file) {
       res.status(400).json({ error: "Aucun fichier fourni" });
@@ -41,6 +41,8 @@ router.post(
     }
 
     const type = req.body.type as "etat" | "calendrier" | "pv_efm";
+    const niveau = (req.body.niveau as string)?.trim().toUpperCase() || undefined;
+
     if (!type || !["etat", "calendrier", "pv_efm"].includes(type)) {
       res.status(400).json({ error: "Type de fichier invalide" });
       return;
@@ -49,24 +51,19 @@ router.post(
     const warnings: string[] = [];
     const errors: string[] = [];
     let imported = 0;
+    let updated = 0;
 
     try {
       if (type === "etat") {
         const rows = parseEtatXlsx(req.file.buffer);
-        req.log.info({ rows: rows.length }, "Parsed etat xlsx rows");
-
         for (const row of rows) {
-          if (!row.groupe || !row.module) {
-            warnings.push(
-              `Ligne ignorée: groupe ou module manquant (${row.groupe})`
-            );
-            continue;
-          }
+          if (!row.groupe || !row.module) continue;
 
+          // 🛡️ BLOCK-002 FIX: FILTER BY etablissementId
           let [groupe] = await db
             .select()
             .from(groupesTable)
-            .where(eq(groupesTable.code, row.groupe));
+            .where(and(eq(groupesTable.code, row.groupe), eq(groupesTable.etablissementId, etablissementId)));
 
           if (!groupe) {
             const anneeMatch = row.groupe.match(/[A-Z]+(\d)/);
@@ -81,50 +78,48 @@ router.post(
                 annee,
                 mode: "R_PP",
                 filiereCode,
-                filiereNom:
-                  filiereCode === "EB" ? "Electricité de Bâtiment" : filiereCode,
+                filiereNom: filiereCode,
                 statut: row.statut === "Actif" ? "Actif" : "Clôturé",
                 anneeFormation: "2025/2026",
+                niveau: niveau || "T",
+                etablissementId,
               })
               .returning();
           }
 
-          let [module] = await db
+          const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+          const allModulesForEtab = await db
             .select()
             .from(modulesTable)
-            .where(eq(modulesTable.intitule, row.module));
+            .where(and(eq(modulesTable.filiereCode, groupe.filiereCode), eq(modulesTable.etablissementId, etablissementId)));
+            
+          let module = allModulesForEtab.find(
+            (m) => normalize(m.intitule) === normalize(row.module)
+          );
 
           if (!module) {
-            const moduleCodeMatch = row.module.match(/\(M(\d+)\)/);
-            const code = moduleCodeMatch
-              ? `M${moduleCodeMatch[1]}`
-              : `M${Date.now()}`;
-
             [module] = await db
               .insert(modulesTable)
               .values({
                 id: randomUUID(),
-                code,
+                code: row.moduleCode || `MOD_${randomUUID().slice(0, 8)}`,
                 intitule: row.module,
                 mhGlobale: Math.round(row.mhGlobale),
                 filiereCode: groupe.filiereCode,
-                niveau: "S",
+                niveau: niveau || "T",
+                etablissementId,
               })
               .returning();
-          }
-
-          if (row.tauxReel !== null && row.tauxReel > 1.07) {
-            warnings.push(
-              `Anomalie: taux réel ${(row.tauxReel * 100).toFixed(1)}% > 107% pour ${row.groupe} - ${row.module}`
-            );
           }
 
           const existing = await db
             .select()
             .from(avancementsTable)
-            .where(
-              sql`${avancementsTable.groupeId} = ${groupe.id} AND ${avancementsTable.moduleId} = ${module.id}`
-            );
+            .where(and(
+              eq(avancementsTable.groupeId, groupe.id),
+              eq(avancementsTable.moduleId, module.id),
+              eq(avancementsTable.etablissementId, etablissementId)
+            ));
 
           if (existing.length > 0) {
             await db
@@ -134,11 +129,11 @@ router.post(
                 mhRealise: row.mhRealise,
                 tauxReel: row.tauxReel,
                 nbSeancesVal: row.nbSeancesVal,
-                nbSeancesEnCours: row.nbSeancesEnCours,
                 sourceFile: req.file!.originalname,
                 importedAt: new Date(),
               })
               .where(eq(avancementsTable.id, existing[0].id));
+            updated++;
           } else {
             await db.insert(avancementsTable).values({
               id: randomUUID(),
@@ -150,49 +145,7 @@ router.post(
               mhRealise: row.mhRealise,
               tauxReel: row.tauxReel,
               nbSeancesVal: row.nbSeancesVal,
-              nbSeancesEnCours: row.nbSeancesEnCours,
-              sourceFile: req.file!.originalname,
-              importedAt: new Date(),
-            });
-          }
-
-          imported++;
-        }
-      } else if (type === "calendrier") {
-        const results = parseCalendrierXlsx(req.file.buffer);
-        req.log.info({ results: results.length }, "Parsed calendrier xlsx");
-
-        for (const cal of results) {
-          const existing = await db
-            .select()
-            .from(calendriersTable)
-            .where(
-              sql`${calendriersTable.anneeFormation} = ${cal.anneeFormation} AND ${calendriersTable.typeCalendrier} = ${cal.typeCalendrier}`
-            );
-
-          if (existing.length > 0) {
-            await db
-              .update(calendriersTable)
-              .set({
-                totalJours: cal.totalJours,
-                joursRealises: cal.joursRealises,
-                tauxTheorique: cal.tauxTheorique,
-                dateReference: cal.dateReference,
-                jourDetails: cal.jourDetails,
-                sourceFile: req.file!.originalname,
-                importedAt: new Date(),
-              })
-              .where(eq(calendriersTable.id, existing[0].id));
-          } else {
-            await db.insert(calendriersTable).values({
-              id: randomUUID(),
-              anneeFormation: cal.anneeFormation,
-              typeCalendrier: cal.typeCalendrier,
-              totalJours: cal.totalJours,
-              joursRealises: cal.joursRealises,
-              tauxTheorique: cal.tauxTheorique,
-              dateReference: cal.dateReference,
-              jourDetails: cal.jourDetails,
+              etablissementId,
               sourceFile: req.file!.originalname,
               importedAt: new Date(),
             });
@@ -200,236 +153,92 @@ router.post(
           imported++;
         }
       } else if (type === "pv_efm") {
-        let pdfText = "";
-
-        try {
-          const data = await pdfParse(req.file.buffer);
-          pdfText = data.text;
-        } catch (e) {
-          req.log.error({ err: e }, "Error parsing PDF");
-          errors.push("Erreur lors de la lecture du PDF");
-          res.json(
-            ImportFileResponse.parse({
-              success: false,
-              imported: 0,
-              warnings,
-              errors,
-              message: "Erreur de lecture du PDF",
-            })
-          );
-          return;
-        }
-
-        const pvData = parsePvEfmPdf(pdfText);
-        req.log.info(
-          {
-            groupe: pvData.groupe,
-            module: pvData.moduleCode,
-            stagiaires: pvData.stagiaires.length,
-          },
-          "PV EFM parsed"
-        );
+        const data = await pdfParse(req.file.buffer);
+        const pvData = parsePvEfmPdf(data.text);
 
         if (!pvData.groupe) {
-          errors.push("Groupe non détecté dans le PDF");
-          res.json(
-            ImportFileResponse.parse({
-              success: false,
-              imported: 0,
-              warnings,
-              errors,
-              message: "Données invalides dans le PDF",
-            })
-          );
+          errors.push("Groupe non trouvé dans le PV");
+          res.status(400).json({ success: false, errors });
           return;
         }
 
         let [groupe] = await db
           .select()
           .from(groupesTable)
-          .where(eq(groupesTable.code, pvData.groupe));
+          .where(and(eq(groupesTable.code, pvData.groupe), eq(groupesTable.etablissementId, etablissementId)));
 
         if (!groupe) {
-          const anneeMatch = pvData.groupe.match(/[A-Z]+(\d)/);
-          const annee = anneeMatch ? parseInt(anneeMatch[1]) : 1;
-          const filiereCode = pvData.groupe.replace(/\d+$/, "");
-
-          [groupe] = await db
-            .insert(groupesTable)
-            .values({
-              id: randomUUID(),
-              code: pvData.groupe,
-              annee,
-              mode: "R_PP",
-              filiereCode,
-              filiereNom:
-                filiereCode === "EB"
-                  ? "Electricité de Bâtiment"
-                  : pvData.filiere || filiereCode,
-              statut: "Actif",
-              anneeFormation: pvData.anneeFormation || "2025/2026",
-            })
-            .returning();
+           errors.push(`Groupe ${pvData.groupe} inconnu. Importez d'abord l'état d'avancement.`);
+           res.status(400).json({ success: false, errors });
+           return;
         }
 
-        let [module] = await db
-          .select()
-          .from(modulesTable)
-          .where(eq(modulesTable.code, pvData.moduleCode));
+        const allModules = await db.select().from(modulesTable).where(eq(modulesTable.etablissementId, etablissementId));
+        const module = allModules.find(m => m.code === pvData.moduleCode || m.intitule === pvData.moduleIntitule);
 
         if (!module) {
-          [module] = await db
-            .insert(modulesTable)
-            .values({
-              id: randomUUID(),
-              code: pvData.moduleCode,
-              intitule: pvData.moduleIntitule,
-              mhGlobale: 0,
-              filiereCode: groupe.filiereCode,
-              niveau: "S",
-            })
-            .returning();
+           errors.push(`Module ${pvData.moduleIntitule} inconnu.`);
+           res.status(400).json({ success: false, errors });
+           return;
         }
 
         for (const s of pvData.stagiaires) {
-          if (!/^\d{13,14}$/.test(s.cef)) {
-            warnings.push(`CEF invalide: ${s.cef} — ligne ignorée`);
-            continue;
-          }
+           // 🛡️ BLOCK FIX: Search by CEF AND etablissementId
+           let [stagiaire] = await db.select().from(stagiairesTable).where(and(
+             eq(stagiairesTable.cef, s.cef),
+             eq(stagiairesTable.etablissementId, etablissementId)
+           ));
 
-          const nameParts = s.nomPrenom.trim().split(/\s+/);
-          const nom = nameParts[0] ?? "INCONNU";
-          const prenom = nameParts.slice(1).join(" ") || "INCONNU";
+           if (!stagiaire) {
+             const nameParts = s.nomPrenom.trim().split(/\s+/);
+             [stagiaire] = await db.insert(stagiairesTable).values({
+               id: randomUUID(),
+               cef: s.cef,
+               nom: nameParts[0] || "NOM",
+               prenom: nameParts.slice(1).join(" ") || "PRENOM",
+               groupeId: groupe.id,
+               etablissementId,
+             }).returning();
+           }
 
-          let [stagiaire] = await db
-            .select()
-            .from(stagiairesTable)
-            .where(eq(stagiairesTable.cef, s.cef));
+           const existingNote = await db.select().from(notesModuleTable).where(and(
+             eq(notesModuleTable.cef, s.cef),
+             eq(notesModuleTable.moduleId, module.id),
+             eq(notesModuleTable.etablissementId, etablissementId)
+           ));
 
-          if (!stagiaire) {
-            [stagiaire] = await db
-              .insert(stagiairesTable)
-              .values({
-                id: randomUUID(),
-                cef: s.cef,
-                nom,
-                prenom,
-                groupeId: groupe.id,
-              })
-              .returning();
-          }
-
-          const moyenneNorm = (s.cc + s.efm / 2) / 2;
-
-          const existing = await db
-            .select()
-            .from(notesModuleTable)
-            .where(
-              sql`${notesModuleTable.cef} = ${s.cef} AND ${notesModuleTable.moduleId} = ${module.id}`
-            );
-
-          if (existing.length > 0) {
-            await db
-              .update(notesModuleTable)
-              .set({
-                cc: s.cc,
-                efm: s.efm,
-                efmStatut: s.efmStatut,
-                moyenneOff: s.moyenneOff,
-                moyenneNorm,
-                sourceFile: req.file!.originalname,
-                importedAt: new Date(),
-              })
-              .where(eq(notesModuleTable.id, existing[0].id));
-          } else {
-            await db.insert(notesModuleTable).values({
-              id: randomUUID(),
-              stagiaireId: stagiaire.id,
-              cef: s.cef,
-              moduleId: module.id,
-              moduleCode: pvData.moduleCode,
-              moduleIntitule: pvData.moduleIntitule,
-              cc: s.cc,
-              efm: s.efm,
-              efmStatut: s.efmStatut,
-              moyenneOff: s.moyenneOff,
-              moyenneNorm,
-              sourceFile: req.file!.originalname,
-              importedAt: new Date(),
-            });
-          }
-
-          imported++;
+           if (existingNote.length > 0) {
+             await db.update(notesModuleTable).set({
+               cc: s.cc, efm: s.efm, efmStatut: s.efmStatut, moyenneOff: s.moyenneOff,
+               sourceFile: req.file!.originalname, importedAt: new Date()
+             }).where(eq(notesModuleTable.id, existingNote[0].id));
+             updated++;
+           } else {
+             await db.insert(notesModuleTable).values({
+               id: randomUUID(), stagiaireId: stagiaire.id, cef: s.cef,
+               moduleId: module.id, moduleCode: module.code, moduleIntitule: module.intitule,
+               cc: s.cc, efm: s.efm, efmStatut: s.efmStatut, moyenneOff: s.moyenneOff,
+               etablissementId, sourceFile: req.file!.originalname, importedAt: new Date()
+             });
+           }
+           imported++;
         }
       }
 
-      const dureeMs = Date.now() - startTime;
-
-      await db.insert(importLogsTable).values({
-        id: randomUUID(),
-        filename: req.file.originalname,
-        type,
-        nbLignes: imported,
-        nbErreurs: errors.length,
-        warnings,
-        dureeMs,
-      });
-
-      res.json(
-        ImportFileResponse.parse({
-          success: errors.length === 0,
-          imported,
-          warnings,
-          errors,
-          message: `Import terminé: ${imported} enregistrements importés`,
-        })
-      );
+      res.json({ success: true, imported, updated, warnings, errors });
     } catch (err) {
-      req.log.error({ err }, "Import error");
-      const dureeMs = Date.now() - startTime;
-
-      await db.insert(importLogsTable).values({
-        id: randomUUID(),
-        filename: req.file.originalname,
-        type,
-        nbLignes: 0,
-        nbErreurs: 1,
-        warnings: [],
-        dureeMs,
-      });
-
-      res.status(500).json({
-        success: false,
-        imported: 0,
-        warnings: [],
-        errors: [String(err)],
-        message: "Erreur interne lors de l'import",
-      });
+      logger.error({ err }, "Import Error");
+      res.status(500).json({ success: false, errors: [String(err)] });
     }
   }
 );
 
-router.get("/import/logs", async (req, res): Promise<void> => {
-  const logs = await db
-    .select()
-    .from(importLogsTable)
-    .orderBy(sql`${importLogsTable.createdAt} DESC`)
-    .limit(50);
-
-  res.json(
-    GetImportLogsResponse.parse(
-      logs.map((l) => ({
-        id: l.id,
-        filename: l.filename,
-        type: l.type,
-        nbLignes: l.nbLignes,
-        nbErreurs: l.nbErreurs,
-        warnings: (l.warnings as string[]) ?? [],
-        dureeMs: l.dureeMs,
-        createdAt: l.createdAt.toISOString(),
-      }))
-    )
-  );
+router.get("/import/logs", async (req, res) => {
+  const etabId = (req as any).etabId;
+  const logs = await db.select().from(importLogsTable)
+    .where(eq(importLogsTable.etablissementId, etabId))
+    .orderBy(sql`${importLogsTable.createdAt} DESC`).limit(20);
+  res.json(logs);
 });
 
 export default router;

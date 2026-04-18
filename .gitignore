@@ -47,3 +47,13 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Environment (SECRETS - NEVER COMMIT)
+.env
+.env.local
+.env.production
+
+# Debug/Temp files
+api_debug.log
+dashboard_debug.json
+*.log

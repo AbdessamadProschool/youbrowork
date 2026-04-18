@@ -1,0 +1,9 @@
+ .../App.tsx"                                       |   5 -
+ .../components/ui/pagination-bar.tsx"              |  77 +++++
+ .../pages/alertes.tsx"                             |  54 ++-
+ .../pages/dashboard.tsx"                           | 383 ++++++++++++++++-----
+ .../pages/groupe-stagiaires.tsx"                   |  18 +-
+ .../pages/import.tsx"                              |  69 +++-
+ .../pages/modules.tsx"                             |  48 ++-
+ .../pages/stagiaires.tsx"                          | 158 ++++++++-
+ 8 files changed, 661 insertions(+), 151 deletions(-)

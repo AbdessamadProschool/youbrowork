@@ -14,7 +14,7 @@ import {
   computeAlertesForStagiaire,
   computeDisciplinaireAlert,
 } from "../lib/alertes";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -24,10 +24,22 @@ router.get("/alertes", async (req, res): Promise<void> => {
     entity?: string;
   };
 
+  const etablissementId = req.headers["x-etab-id"] as string | undefined;
+
+  let groupesQuery = db.select().from(groupesTable);
+  let stagiairesQuery = db.select().from(stagiairesTable);
+  let avancementsQuery = db.select().from(avancementsTable);
+
+  if (etablissementId) {
+    groupesQuery = groupesQuery.where(eq(groupesTable.etablissementId, etablissementId)) as any;
+    stagiairesQuery = stagiairesQuery.where(eq(stagiairesTable.etablissementId, etablissementId)) as any;
+    avancementsQuery = avancementsQuery.where(eq(avancementsTable.etablissementId, etablissementId)) as any;
+  }
+
+  const groupes = await groupesQuery;
+  const stagiaires = await stagiairesQuery;
+  const avancements = await avancementsQuery;
   const notes = await db.select().from(notesModuleTable);
-  const avancements = await db.select().from(avancementsTable);
-  const groupes = await db.select().from(groupesTable);
-  const stagiaires = await db.select().from(stagiairesTable);
 
   const calendrier = await db
     .select()
@@ -62,20 +74,25 @@ router.get("/alertes", async (req, res): Promise<void> => {
         .sort((a, b) => new Date(b.validatedAt).getTime() - new Date(a.validatedAt).getTime())[0];
       const absencesValidated = lastDiscipline?.absencesCountAtValidation ?? 0;
 
+      const sGroupe = groupes.find((g) => g.id === s.groupeId);
+      const groupeExtra = sGroupe
+        ? { groupeCode: sGroupe.code, anneeFormation: sGroupe.anneeFormation, filiereCode: sGroupe.filiereCode, filiereNom: sGroupe.filiereNom }
+        : {};
+
       const discAlerte = computeDisciplinaireAlert(
         s.cef,
         `${s.prenom} ${s.nom}`,
         totalAbsences,
         absencesValidated
       );
-      if (discAlerte) allAlertes.push(discAlerte);
+      if (discAlerte) allAlertes.push({ ...discAlerte, ...groupeExtra });
 
       const alertes = computeAlertesForStagiaire(
         s.cef,
         `${s.prenom} ${s.nom}`,
         sNotes
       );
-      allAlertes.push(...alertes);
+      allAlertes.push(...alertes.map((a) => ({ ...a, ...groupeExtra })));
     }
   }
 

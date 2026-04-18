@@ -105,8 +105,8 @@
   --popover-foreground: 230 20% 15%; 
   --popover-border: 220 13% 91%; 
 
-  --primary: 225 21% 7%; 
-  --primary-foreground: 220 14% 96%; 
+  --primary: 207 100% 28%; 
+  --primary-foreground: 0 0% 100%; 
 
   --secondary: 220 14% 96%; 
   --secondary-foreground: 225 21% 7%; 
@@ -120,8 +120,8 @@
   --destructive: 0 65% 54%; 
   --destructive-foreground: 0 0% 100%; 
 
-  --success: 155 82% 33%;
-  --info: 218 90% 54%;
+  --success: 145 100% 29%;
+  --info: 207 100% 28%;
   --warning: 27 75% 52%;
   --critique: 0 65% 54%;
   --analytique: 254 71% 58%;
@@ -188,8 +188,8 @@
   --popover-foreground: 0 0% 98%; 
   --popover-border: 230 20% 18%; 
 
-  --primary: 0 0% 98%; 
-  --primary-foreground: 230 20% 10%; 
+  --primary: 207 100% 45%; 
+  --primary-foreground: 0 0% 100%; 
   --secondary: 230 20% 18%; 
   --secondary-foreground: 0 0% 98%; 
   --muted: 230 20% 18%; 

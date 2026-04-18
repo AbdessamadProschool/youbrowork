@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, ShieldAlert, Loader2, CheckCircle2 } from "lucide-react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import { PaginationBar } from "@/components/ui/pagination-bar";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
@@ -25,6 +26,10 @@ type Alerte = {
   entityId: string;
   entityLabel: string;
   createdAt: string;
+  groupeCode?: string;
+  anneeFormation?: string;
+  filiereCode?: string;
+  filiereNom?: string;
 };
 
 const NIVEAU_CONFIG: Record<string, { label: string; dot: string; row: string }> = {
@@ -122,6 +127,8 @@ export default function Alertes() {
   const [niveauFilter, setNiveauFilter] = useState<GetAlertesNiveau | "all">("all");
   const [entityFilter, setEntityFilter] = useState<GetAlertesEntity | "all">("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const params = {
     ...(niveauFilter !== "all" ? { niveau: niveauFilter } : {}),
@@ -147,9 +154,18 @@ export default function Alertes() {
     return sorted.filter(
       (a) =>
         a.message.toLowerCase().includes(q) ||
-        a.entityLabel.toLowerCase().includes(q)
+        a.entityLabel.toLowerCase().includes(q) ||
+        (a.groupeCode ?? "").toLowerCase().includes(q) ||
+        (a.filiereNom ?? "").toLowerCase().includes(q)
     );
   }, [sorted, search]);
+
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  function handleFilter(fn: () => void) {
+    fn();
+    setPage(1);
+  }
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
@@ -176,12 +192,12 @@ export default function Alertes() {
             <Input
               placeholder="Rechercher…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleFilter(() => setSearch(e.target.value))}
               className="pl-8 h-9 w-44 text-sm"
             />
           </div>
 
-          <Select value={niveauFilter} onValueChange={(v) => setNiveauFilter(v as any)}>
+          <Select value={niveauFilter} onValueChange={(v) => handleFilter(() => setNiveauFilter(v as any))}>
             <SelectTrigger className="h-9 w-40 text-sm">
               <SelectValue placeholder="Niveau" />
             </SelectTrigger>
@@ -193,7 +209,7 @@ export default function Alertes() {
             </SelectContent>
           </Select>
 
-          <Select value={entityFilter} onValueChange={(v) => setEntityFilter(v as any)}>
+          <Select value={entityFilter} onValueChange={(v) => handleFilter(() => setEntityFilter(v as any))}>
             <SelectTrigger className="h-9 w-36 text-sm">
               <SelectValue placeholder="Entité" />
             </SelectTrigger>
@@ -213,7 +229,7 @@ export default function Alertes() {
             <TableRow className="hover:bg-transparent border-b">
               <TableHead className="w-[130px]">Niveau</TableHead>
               <TableHead>Message</TableHead>
-              <TableHead className="w-[180px]">Concerné</TableHead>
+              <TableHead className="w-[220px]">Concerné</TableHead>
               <TableHead className="w-[160px] text-right">Action / Date</TableHead>
             </TableRow>
           </TableHeader>
@@ -239,7 +255,7 @@ export default function Alertes() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((a) => {
+              paginated.map((a) => {
                 const cfg = NIVEAU_CONFIG[a.niveau] ?? NIVEAU_CONFIG.anomalie;
                 const isDisc = a.niveau === "disciplinaire";
                 const parts = a.message.split(" — ");
@@ -271,10 +287,25 @@ export default function Alertes() {
                     <TableCell className="py-3">
                       <Link
                         href={a.entity === "groupe" ? `/groupes/${a.entityId}` : `/stagiaires/${a.entityId}`}
-                        className="text-sm text-primary hover:underline"
+                        className="text-sm text-primary hover:underline font-medium"
                       >
                         {a.entityLabel}
                       </Link>
+                      {a.entity === "stagiaire" && (a.groupeCode || a.filiereNom) && (
+                        <div className="flex flex-col mt-0.5 gap-0">
+                          {a.groupeCode && (
+                            <span className="text-[10px] text-muted-foreground font-mono">
+                              Groupe : {a.groupeCode}
+                              {a.anneeFormation ? ` · ${a.anneeFormation}` : ""}
+                            </span>
+                          )}
+                          {a.filiereNom && (
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[200px]" title={a.filiereNom}>
+                              {a.filiereCode} — {a.filiereNom}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
 
                     <TableCell className="py-3 text-right">
@@ -297,6 +328,15 @@ export default function Alertes() {
             )}
           </TableBody>
         </Table>
+        {!isLoading && filtered.length > pageSize && (
+          <PaginationBar
+            page={page}
+            pageSize={pageSize}
+            total={filtered.length}
+            onPageChange={setPage}
+            onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+          />
+        )}
       </div>
     </div>
   );

@@ -50,8 +50,14 @@ function moduleStatut(
 
 router.get("/groupes", async (req, res): Promise<void> => {
   const { statut } = req.query as { statut?: string };
+  const etablissementId = req.headers["x-etab-id"] as string | undefined;
 
-  let groupes = await db.select().from(groupesTable);
+  let query = db.select().from(groupesTable);
+  if (etablissementId) {
+    query = query.where(eq(groupesTable.etablissementId, etablissementId)) as any;
+  }
+
+  let groupes = await query;
   if (statut) {
     groupes = groupes.filter(
       (g) => g.statut.toLowerCase() === statut.toLowerCase()
@@ -74,7 +80,7 @@ router.get("/groupes", async (req, res): Promise<void> => {
         avgReel = totalTaux / gAv.length;
       }
 
-      const cal = await getCalendrierForGroupe(g.annee, g.mode);
+      const cal = await getCalendrierForGroupe(g.id, g.annee, g.mode);
       const tauxTheorique = cal ? cal.tauxTheorique : null;
 
       const ecart =
@@ -100,6 +106,7 @@ router.get("/groupes", async (req, res): Promise<void> => {
         ecart,
         avancementStatut: avancementStatut(avgReel, tauxTheorique),
         nbStagiaires,
+        niveau: g.niveau,
         createdAt: g.createdAt.toISOString(),
       };
     })
@@ -169,7 +176,7 @@ router.get("/groupes/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const cal = await getCalendrierForGroupe(groupe.annee, groupe.mode);
+  const cal = await getCalendrierForGroupe(groupe.id, groupe.annee, groupe.mode);
   const tauxTheorique = cal ? cal.tauxTheorique : null;
 
   const avancements = await db
@@ -229,7 +236,7 @@ router.get("/groupes/:id/avancement", async (req, res): Promise<void> => {
     return;
   }
 
-  const cal2 = await getCalendrierForGroupe(groupe.annee, groupe.mode);
+  const cal2 = await getCalendrierForGroupe(groupe.id, groupe.annee, groupe.mode);
   const tauxTheorique = cal2 ? cal2.tauxTheorique : null;
 
   const avancements = await db
