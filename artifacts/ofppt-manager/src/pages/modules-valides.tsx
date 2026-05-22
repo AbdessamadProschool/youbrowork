@@ -30,7 +30,10 @@ export default function ModulesValides() {
   const { data: modules, isLoading } = useQuery<ModuleValide[]>({
     queryKey: ["/api/modules-valides"],
     queryFn: async () => {
-      const res = await fetch("/api/modules-valides");
+      const etabId = localStorage.getItem("selected_etab_id");
+      const res = await fetch("/api/modules-valides", {
+        headers: etabId ? { "x-etab-id": etabId } : {}
+      });
       if (!res.ok) throw new Error("Failed to fetch modules valides");
       return res.json();
     }

@@ -122,7 +122,7 @@ export default function ImportPage() {
           });
         }
       } else {
-        throw new Error(res.error || "Erreur serveur");
+        throw new Error(res.errors?.[0] || res.message || "Erreur serveur");
       }
     } catch (err: any) {
       setImportResult({ 

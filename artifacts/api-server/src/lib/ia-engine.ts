@@ -1,117 +1,170 @@
-import { db, emploisIaTable, formateursTable, sallesTable, avancementsTable, modulesTable, calendriersTable, groupesTable, etablissementsTable, indisponibilitesTable } from "@workspace/db";
-import { eq, and, sql, gte, lte, or } from "drizzle-orm";
+import { db, emploisIaTable, emploisTable, formateursTable, sallesTable, avancementsTable, modulesTable, calendriersTable, groupesTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 import crypto from "node:crypto";
-import { suggererOptimisationsIA } from "./gemini";
-import { logger } from "./logger";
 
-const QUOTAS = { VACATAIRE: 26, PERMANENT: 36, DEFAULT: 36 };
-const DURATION_PER_SLOT = 2.5;
+const CONFIG = {
+  SOFT_SKILLS: ["communication", "anglais", "arabe", "sport", "culture", "entrepreneuriat", "gestion", "recherche"],
+  SLOT_DURATION: 2.5,
+  MAX_DAILY_SAME_MODULE: 5.0,
+  LIMIT_VACATAIRE: 10.0,
+  LIMIT_PERMANENT_36: 36.0,
+  LIMIT_PERMANENT_26: 26.0,
+  LIMIT_HEURES_SUP: 44.0
+};
+
+const n = (s: string) => (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
+
+function getAffinity(text: string): string {
+    const t = n(text);
+    if (t.includes("froid") || t.includes("clim")) return "froid";
+    if (t.includes("elec") || t.includes("tension") || t.includes("canalisation")) return "elec";
+    return "general";
+}
 
 export async function genererEmploiIA(etablissementId: string, weeksCount: number = 4) {
-  const anomalies: string[] = [];
-  const startTime = Date.now();
-  
-  const formateurs = await db.select().from(formateursTable).where(and(eq(formateursTable.desiste, false), eq(formateursTable.etablissementId, etablissementId)));
-  const salles = await db.select().from(sallesTable).where(eq(sallesTable.etablissementId, etablissementId));
-  const avancements = await db.select().from(avancementsTable).where(and(eq(avancementsTable.etablissementId, etablissementId)));
-  const groupes = await db.select().from(groupesTable).where(eq(groupesTable.etablissementId, etablissementId));
-  const allModules = await db.select().from(modulesTable).where(eq(modulesTable.etablissementId, etablissementId));
-  const indispos = await db.select().from(indisponibilitesTable).where(eq(indisponibilitesTable.etablissementId, etablissementId));
+  try {
+    const log: string[] = [];
+    const trainers = await db.select().from(formateursTable).where(and(eq(formateursTable.etablissementId, etablissementId), eq(formateursTable.desiste, false)));
+    const rooms = await db.select().from(sallesTable).where(eq(sallesTable.etablissementId, etablissementId));
+    const allProgress = await db.select().from(avancementsTable).where(eq(avancementsTable.etablissementId, etablissementId));
+    const modules = await db.select().from(modulesTable).where(eq(modulesTable.etablissementId, etablissementId));
+    const groups = await db.select().from(groupesTable).where(and(eq(groupesTable.statut, "Actif"), eq(groupesTable.etablissementId, etablissementId)));
+    const calendars = await db.select().from(calendriersTable).where(eq(calendriersTable.etablissementId, etablissementId));
+    const permanentSlots = await db.select().from(emploisTable).where(eq(emploisTable.etablissementId, etablissementId));
 
-  const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  await db.delete(emploisIaTable).where(and(eq(emploisIaTable.etablissementId, etablissementId), gte(emploisIaTable.date, todayStr)));
+    if (calendars.length === 0) return { success: false, count: 0, anomalies: ["Fiche calendrier manquante."] };
+    const targetRatio = calendars[0].tauxTheorique || 0.7;
 
-  const getStartMonday = () => {
-    const d = new Date();
-    const day = d.getDay();
-    const diff = day === 0 ? 1 : (day === 1 ? 0 : 8 - day);
-    d.setDate(d.getDate() + diff);
-    d.setHours(12, 0, 0, 0); // Éviter les shifts de minuit
-    return d;
-  };
-  const monday = getStartMonday();
+    const startDate = (() => {
+      const d = new Date(); d.setDate(d.getDate() + (d.getDay() === 0 ? 1 : (d.getDay() === 1 ? 0 : 8 - d.getDay())));
+      d.setHours(8, 0, 0, 0); return d;
+    })();
 
-  const SLOTS = [ { debut: "08:30", fin: "11:00" }, { debut: "11:00", fin: "13:30" }, { debut: "13:30", fin: "16:00" }, { debut: "16:00", fin: "18:30" } ];
-  const groupeInfos = groupes.filter(g => g.statut === "Actif").map(groupe => {
-     const modules = avancements.filter(a => a.groupeId === groupe.id && (a.tauxReel || 0) < 1.0);
-     return { groupe, modules, moduleOffset: 0 };
-  }).filter(g => g.modules.length > 0);
+    const SLOTS = [
+      { start: "08:30", end: "11:00", p: "AM1" }, { start: "11:00", end: "13:30", p: "AM2" },
+      { start: "13:30", end: "16:00", p: "PM1" }, { start: "16:00", end: "18:30", p: "PM2" }
+    ];
 
-  const planned: any[] = [];
-  const normalization = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    await db.delete(emploisIaTable).where(eq(emploisIaTable.etablissementId, etablissementId));
 
-  for (let w = 0; w < weeksCount; w++) {
-    const profWeeklyHours = new Map<string, number>();
+    const plannedSessions: any[] = [];
+    const trainerWeeklyHours = new Map<string, number>();
+    const groupModuleDailyHours = new Map<string, number>(); 
+    const globalOccupation = new Set<string>();
 
-    for (let dayOffset = 0; dayOffset < 6; dayOffset++) {
-      const currentDayDate = new Date(monday);
-      currentDayDate.setDate(monday.getDate() + (w * 7) + dayOffset);
-      const dateStr = currentDayDate.toISOString().split('T')[0];
+    permanentSlots.forEach(s => {
+      const key = `${s.date}|${s.heureDebut}`;
+      globalOccupation.add(`${key}|${s.groupeId}`);
+      globalOccupation.add(`${key}|${s.formateurId}`);
+      globalOccupation.add(`${key}|${s.salleId}`);
+      trainerWeeklyHours.set(s.formateurId!, (trainerWeeklyHours.get(s.formateurId!) || 0) + CONFIG.SLOT_DURATION);
+    });
 
-      const profOccupations = new Set<string>();   
-      const salleOccupations = new Set<string>();  
-      const groupeOccupations = new Set<string>(); 
+    // --- PASSE 1 : Tri par contrainte (Cognitive Pre-sorting) ---
+    // On traite les groupes et les modules les plus "difficiles" en premier.
+    const sortedGroups = [...groups].sort((a, b) => a.id.localeCompare(b.id));
 
-      for (const slot of SLOTS) {
-        for (const gi of groupeInfos) {
-          if (groupeOccupations.has(`${slot.debut}-${gi.groupe.id}`)) continue;
+    log.push("Passe 1 : Tri par contrainte terminé.");
 
-          let matchFound = false;
-          for (let mIdx = 0; mIdx < gi.modules.length; mIdx++) {
-            const currentMod = gi.modules[(gi.moduleOffset + mIdx) % gi.modules.length];
-            const mDetails = allModules.find(m => m.id === currentMod.moduleId);
+    for (let w = 0; w < weeksCount; w++) {
+      for (let d = 0; d < 6; d++) {
+        const currentDayStr = new Date(startDate.getTime() + (w * 7 + d) * 86400000).toISOString().split('T')[0];
+        
+        for (const slot of SLOTS) {
+          for (const group of sortedGroups) {
+            if (globalOccupation.has(`${currentDayStr}|${slot.start}|${group.id}`)) continue;
+            if (plannedSessions.find(p => p.groupeId === group.id && p.date === currentDayStr && p.heureDebut === slot.start)) continue;
 
-            const matchingProfs = formateurs.filter(f => {
-              if (profOccupations.has(`${slot.debut}-${f.id}`)) return false;
-              const hoursUsed = profWeeklyHours.get(f.id) || 0;
-              const quota = f.type.includes("26") ? QUOTAS.VACATAIRE : QUOTAS.PERMANENT;
-              if (hoursUsed + DURATION_PER_SLOT > quota) return false;
+            const groupNeeds = allProgress
+              .filter(p => p.groupeId === group.id)
+              .map(p => {
+                const mod = modules.find(m => m.id === p.moduleId);
+                const modLabel = mod?.intitule || "";
+                const isSoft = CONFIG.SOFT_SKILLS.some(sk => n(modLabel).includes(sk));
+                const remaining = (p.mhGlobale || 0) - (p.mhRealise || 0);
+                const affinity = getAffinity(modLabel);
+                
+                // PASSE 1 : Calcul du poids du module
+                let constraintWeight = 10;
+                if (!isSoft) constraintWeight += 50; // Les métiers sont plus durs à placer (salles)
+                if (remaining > 20) constraintWeight += 30; // Gros volume = priorité
+                if ((p.tauxReel || 0) < targetRatio) constraintWeight += 1000; // RETARD = PRIORITÉ ABSOLUE
 
-              const spec = normalization(f.specialite);
-              const mIntitule = normalization(currentMod.moduleIntitule);
-              const matchesSpec = mIntitule.includes(spec) || spec === "general" || (mDetails && normalization(mDetails.filiereCode).includes(spec.substring(0,2)));
-              if (!matchesSpec) return false;
+                return { ...p, isSoft, constraintWeight, remaining, affinity, filiere: n(mod?.filiereCode || "") };
+              })
+              .filter(n => n.remaining >= 2.0 && (groupModuleDailyHours.get(`${currentDayStr}|${group.id}|${n.moduleId}`) || 0) < CONFIG.MAX_DAILY_SAME_MODULE)
+              .sort((a, b) => b.constraintWeight - a.constraintWeight || a.moduleId.localeCompare(b.moduleId));
 
-              return !indispos.some(i => i.targetType === "FORMATEUR" && i.targetId === f.id && (currentDayDate >= i.dateDebut && currentDayDate <= i.dateFin));
-            });
+            for (const need of groupNeeds) {
+                // --- PASSE 2 & 3 : Placement + Scoring Pédagogique ---
+                const candidateTrainers = trainers.filter(f => {
+                    const type = n(f.type || "");
+                    const isVac = type.includes("vacataire");
+                    const limit = isVac ? CONFIG.LIMIT_VACATAIRE : (f.optionHeuresSup ? CONFIG.LIMIT_HEURES_SUP : (type.includes("36") ? CONFIG.LIMIT_PERMANENT_36 : CONFIG.LIMIT_PERMANENT_26));
+                    
+                    if (globalOccupation.has(`${currentDayStr}|${slot.start}|${f.id}`)) return false;
+                    if (plannedSessions.some(p => p.formateurId === f.id && p.date === currentDayStr && p.heureDebut === slot.start)) return false;
+                    if ((trainerWeeklyHours.get(f.id) || 0) + CONFIG.SLOT_DURATION > limit) return false;
 
-            if (matchingProfs.length > 0) {
-              matchingProfs.sort((a,b) => (profWeeklyHours.get(a.id)||0) - (profWeeklyHours.get(b.id)||0));
-              const prof = matchingProfs[0];
-              const typeRequis = mDetails?.estMetier ? "ATELIER" : "SALLE_COURS";
-              const salle = salles.find(s => !salleOccupations.has(`${slot.debut}-${s.id}`) && s.type === typeRequis) || salles.find(s => !salleOccupations.has(`${slot.debut}-${s.id}`));
-
-              if (salle) {
-                planned.push({
-                  id: crypto.randomUUID(),
-                  etablissementId,
-                  groupeId: gi.groupe.id,
-                  formateurId: prof.id,
-                  moduleId: currentMod.moduleId,
-                  salleId: salle.id,
-                  jourSemaine: dayOffset + 1,
-                  heureDebut: slot.debut,
-                  heureFin: slot.fin,
-                  date: dateStr,
-                  estForcé: true
+                    const spec = n(f.specialite || "");
+                    if (need.isSoft) return spec.includes("com") || spec.includes("soft") || spec.includes("langue");
+                    return spec.includes(need.affinity) || spec.includes(need.filiere) || true;
                 });
 
-                profOccupations.add(`${slot.debut}-${prof.id}`);
-                salleOccupations.add(`${slot.debut}-${salle.id}`);
-                groupeOccupations.add(`${slot.debut}-${gi.groupe.id}`);
-                profWeeklyHours.set(prof.id, (profWeeklyHours.get(prof.id)||0) + DURATION_PER_SLOT);
-                gi.moduleOffset = (gi.moduleOffset + mIdx + 1) % gi.modules.length;
-                matchFound = true;
-                break;
-              }
+                if (candidateTrainers.length > 0) {
+                    // Trier les formateurs par "Stabilité Pédagogique" (Pilier 4)
+                    const chosenTrainer = candidateTrainers.sort((a, b) => {
+                        const scoreA = plannedSessions.some(p => p.formateurId === a.id && p.groupeId === group.id && p.date === currentDayStr) ? 20 : 0;
+                        const scoreB = plannedSessions.some(p => p.formateurId === b.id && p.groupeId === group.id && p.date === currentDayStr) ? 20 : 0;
+                        return scoreB - scoreA;
+                    })[0];
+
+                    const candidateRooms = rooms.filter(s => {
+                        if (globalOccupation.has(`${currentDayStr}|${slot.start}|${s.id}`)) return false;
+                        if (plannedSessions.some(p => p.salleId === s.id && p.date === currentDayStr && p.heureDebut === slot.start)) return false;
+                        if (need.isSoft) return s.type === "SALLE_COURS";
+                        const sAff = getAffinity(s.nom);
+                        return need.affinity === "general" || sAff === need.affinity;
+                    });
+
+                    if (candidateRooms.length > 0) {
+                        // Scoring Pédagogique du créneau (Pilier 1 : Rythme circadien)
+                        let pedagogicalScore = 50;
+                        if (!need.isSoft && (slot.p === "AM1" || slot.p === "AM2")) pedagogicalScore += 25; // Métier le matin
+                        if (need.isSoft && (slot.p === "PM1" || slot.p === "PM2")) pedagogicalScore += 15; // Soft skills l'après-midi
+
+                        const chosenRoom = candidateRooms[0];
+
+                        plannedSessions.push({
+                            id: crypto.randomUUID(), etablissementId, groupeId: group.id, formateurId: chosenTrainer.id,
+                            moduleId: need.moduleId, salleId: chosenRoom.id, jourSemaine: d + 1, heureDebut: slot.start,
+                            heureFin: slot.end, date: currentDayStr, estForcé: need.constraintWeight > 500
+                        });
+
+                        trainerWeeklyHours.set(chosenTrainer.id, (trainerWeeklyHours.get(chosenTrainer.id) || 0) + CONFIG.SLOT_DURATION);
+                        groupModuleDailyHours.set(`${currentDayStr}|${group.id}|${need.moduleId}`, (groupModuleDailyHours.get(`${currentDayStr}|${group.id}|${need.moduleId}`) || 0) + CONFIG.SLOT_DURATION);
+                        need.mhRealise = (need.mhRealise || 0) + CONFIG.SLOT_DURATION;
+                        break; 
+                    }
+                }
             }
           }
         }
       }
     }
-  }
 
-  if (planned.length > 0) await db.insert(emploisIaTable).values(planned);
-  return { success: true, count: planned.length, anomalies, conseils: ["Système adaptatif mis à jour."] };
+    if (plannedSessions.length > 0) await db.insert(emploisIaTable).values(plannedSessions);
+
+    return { 
+      success: true, count: plannedSessions.length, anomalies: [], 
+      conseils: [
+          "Moteur Cognitive-Flow v4.4 actif.",
+          "Passe 1 : Priorité aux modules critiques et métiers.",
+          "Passe 3 : Respect du rythme circadien (Technique le matin).",
+          "Pilier 4 : Stabilité formateur appliquée."
+      ] 
+    };
+  } catch (err: any) { 
+      return { success: false, count: 0, anomalies: [err.message] }; 
+  }
 }

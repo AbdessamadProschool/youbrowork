@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { genererEmploiIA } from "../lib/ia-engine";
-import { db, emploisIaTable, formateursTable, modulesTable, sallesTable, groupesTable } from "@workspace/db";
+import { db, emploisIaTable, emploisTable, formateursTable, modulesTable, sallesTable, groupesTable } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 
 const router: IRouter = Router();
@@ -9,10 +9,13 @@ const router: IRouter = Router();
 router.get("/emplois-ia", async (req, res) => {
   try {
     const etabId = req.headers["x-etab-id"] as string;
-    const { startDate, endDate } = req.query;
+    // ✅ Fix: Support both dateDebut (Front) and startDate (Legacy)
+    const startDate = (req.query.dateDebut || req.query.startDate) as string;
+    const endDate = (req.query.dateFin || req.query.endDate) as string;
 
     if (!etabId) return res.status(400).json({ error: "Missing context" });
 
+    // ✅ Fix: Use LeftJoin instead of InnerJoin to avoid 500 if one reference is missing
     let query = db.select({
       id: emploisIaTable.id,
       groupeCode: groupesTable.code,
@@ -28,22 +31,85 @@ router.get("/emplois-ia", async (req, res) => {
       estForcé: emploisIaTable.estForcé
     })
     .from(emploisIaTable)
-    .innerJoin(groupesTable, eq(emploisIaTable.groupeId, groupesTable.id))
-    .innerJoin(formateursTable, eq(emploisIaTable.formateurId, formateursTable.id))
-    .innerJoin(modulesTable, eq(emploisIaTable.moduleId, modulesTable.id))
-    .innerJoin(sallesTable, eq(emploisIaTable.salleId, sallesTable.id));
+    .leftJoin(groupesTable, eq(emploisIaTable.groupeId, groupesTable.id))
+    .leftJoin(formateursTable, eq(emploisIaTable.formateurId, formateursTable.id))
+    .leftJoin(modulesTable, eq(emploisIaTable.moduleId, modulesTable.id))
+    .leftJoin(sallesTable, eq(emploisIaTable.salleId, sallesTable.id));
 
     const conditions = [eq(emploisIaTable.etablissementId, etabId)];
 
-    if (startDate) conditions.push(gte(emploisIaTable.date, startDate as string));
-    if (endDate) conditions.push(lte(emploisIaTable.date, endDate as string));
+    if (startDate) conditions.push(gte(emploisIaTable.date, startDate));
+    if (endDate) conditions.push(lte(emploisIaTable.date, endDate));
 
     const data = await query.where(and(...conditions));
 
-    res.json(data);
-  } catch (error) {
-    console.error("Fetch Timetable Error:", error);
+    // ✅ Fix: Wrap in { emplois: ... } to match the Front-end expectation
+    res.json({ emplois: data, anomalies: [], conseils: [] });
+  } catch (error: any) {
+    console.error("Fetch Timetable Error:", error.message);
     res.status(500).json({ error: "Failed to fetch real timetable" });
+  }
+});
+
+router.get("/emplois", async (req, res) => {
+  try {
+    const { etablissementId } = req.query;
+    if (!etablissementId) return res.status(400).json({ error: "EtabId manquant" });
+    
+    const emplois = await db.select({
+      id: emploisTable.id,
+      date: emploisTable.date,
+      heureDebut: emploisTable.heureDebut,
+      heureFin: emploisTable.heureFin,
+      jourSemaine: emploisTable.jourSemaine,
+      type: emploisTable.type,
+      groupeId: emploisTable.groupeId,
+      groupeCode: groupesTable.code,
+      formateurNom: formateursTable.nom,
+      formateurPrenom: formateursTable.prenom,
+      moduleCode: modulesTable.code,
+      moduleIntitule: modulesTable.intitule,
+      salleNom: sallesTable.nom
+    })
+    .from(emploisTable)
+    .leftJoin(groupesTable, eq(emploisTable.groupeId, groupesTable.id))
+    .leftJoin(formateursTable, eq(emploisTable.formateurId, formateursTable.id))
+    .leftJoin(modulesTable, eq(emploisTable.moduleId, modulesTable.id))
+    .leftJoin(sallesTable, eq(emploisTable.salleId, sallesTable.id))
+    .where(eq(emploisTable.etablissementId, etablissementId as string));
+
+    res.json({ success: true, emplois });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/valide-ia", async (req, res) => {
+  try {
+    const { etablissementId } = req.body;
+    if (!etablissementId) return res.status(400).json({ error: "EtabId manquant" });
+
+    // 1. Get all current IA sessions
+    const iaSessions = await db.select().from(emploisIaTable).where(eq(emploisIaTable.etablissementId, etablissementId));
+    
+    if (iaSessions.length === 0) return res.json({ success: false, message: "Aucune proposition IA à figer." });
+
+    // 2. Transform into Permanent sessions
+    const permanentSessions = iaSessions.map(s => ({
+      ...s,
+      type: "IA_VALIDEE",
+      createdAt: new Date()
+    }));
+
+    // 3. Move to permanent table
+    await db.insert(emploisTable).values(permanentSessions);
+    
+    // 4. Clear the IA table
+    await db.delete(emploisIaTable).where(eq(emploisIaTable.etablissementId, etablissementId));
+
+    res.json({ success: true, count: permanentSessions.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -51,7 +117,7 @@ router.get("/emplois-ia", async (req, res) => {
 router.post("/genere-emploi", async (req, res) => {
   try {
     const etabId = req.headers["x-etab-id"] as string;
-    const weeksCount = parseInt((req.query.weeks as string) || "4");
+    const weeksCount = parseInt((req.body.weeksCount || req.query.weeks || "4").toString());
     
     if (!etabId) {
       res.status(400).json({ error: "Context d'établissement manquant." });
@@ -66,9 +132,9 @@ router.post("/genere-emploi", async (req, res) => {
       anomalies: result.anomalies,
       conseils: result.conseils
     });
-  } catch (error) {
-    console.error("AI Generation Error:", error);
-    res.status(500).json({ error: "Failed to run AI scheduler" });
+  } catch (error: any) {
+    console.error("AI Generation Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to run AI scheduler" });
   }
 });
 

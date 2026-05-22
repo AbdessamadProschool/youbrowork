@@ -427,6 +427,15 @@ export function parsePvEfmPdf(text: string): PvEfmResult {
   }
 
   const groupe = groupeMatch ? groupeMatch[1].trim() : "";
+  
+  // ✅ Fallback Group Detection v1.1
+  let finalGroupe = groupe;
+  if (!finalGroupe) {
+    const fallbackCodes = text.match(/\b([A-Z]{2,4}\d{1,5})\b/g);
+    // On prend le premier code qui ressemble à un groupe et qui n'est pas le module
+    finalGroupe = fallbackCodes?.find(c => c !== moduleCode && !c.includes("MOD")) || "";
+  }
+
   const inscritMatch = text.match(/Inscrits?\s*:?\s*(\d+)/i);
   const presentMatch = text.match(/Pr[eé]sents?\s*:?\s*(\d+)/i);
   const absentMatch = text.match(/Absents?\s*:?\s*(\d+)/i);
@@ -526,7 +535,7 @@ export function parsePvEfmPdf(text: string): PvEfmResult {
       : "Inconnu",
     filiere: filiereMatch ? filiereMatch[1].trim() : "",
     anneeFormation: anneeMatch ? anneeMatch[1] : "2025/2026",
-    groupe,
+    groupe: finalGroupe,
     niveau: niveauMatch ? niveauMatch[1].trim() : "Spécialisation",
     moduleCode,
     moduleIntitule,

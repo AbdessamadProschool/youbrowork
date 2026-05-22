@@ -117,6 +117,7 @@ export const notesModuleTable = pgTable("notes_module", {
   moyenneOff: real("moyenne_off").notNull(),
   moyenneNorm: real("moyenne_norm").notNull(),
   sourceFile: text("source_file").notNull(),
+  etablissementId: text("etablissement_id"),
   importedAt: timestamp("imported_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -124,6 +125,7 @@ export const notesModuleTable = pgTable("notes_module", {
 
 export const calendriersTable = pgTable("calendriers", {
   id: text("id").primaryKey(),
+  etablissementId: text("etablissement_id"),
   anneeFormation: text("annee_formation").notNull(),
   typeCalendrier: text("type_calendrier").notNull(),
   totalJours: integer("total_jours").notNull(),
@@ -154,6 +156,7 @@ export const importLogsTable = pgTable("import_logs", {
   nbErreurs: integer("nb_erreurs").notNull().default(0),
   warnings: json("warnings").$type<string[]>().notNull().default([]),
   dureeMs: integer("duree_ms").notNull().default(0),
+  etablissementId: text("etablissement_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -189,6 +192,23 @@ export const sallesTable = pgTable("salles", {
   type: salleTypeEnum("type").notNull(),
   capacite: integer("capacite").notNull().default(30),
   etablissementId: text("etablissement_id"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const emploisTable = pgTable("emplois", {
+  id: text("id").primaryKey(),
+  groupeId: text("groupe_id").notNull(),
+  formateurId: text("formateur_id"),
+  moduleId: text("module_id").notNull(),
+  salleId: text("salle_id"),
+  jourSemaine: integer("jour_semaine").notNull(),
+  heureDebut: text("heure_debut").notNull(),
+  heureFin: text("heure_fin").notNull(),
+  type: text("type").notNull().default("NORMAL"), // "NORMAL" | "IA_VALIDEE"
+  etablissementId: text("etablissement_id").notNull(),
+  date: text("date").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

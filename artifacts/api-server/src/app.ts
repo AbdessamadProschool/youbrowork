@@ -33,10 +33,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 🛡️ Global Tenant Isolation Security
-// All requests to /api MUST have a valid x-etab-id header
-app.use("/api", tenantGuard);
-
+// Routes
 app.use("/api", router);
 
 // Production: serve frontend static files (Docker mode)

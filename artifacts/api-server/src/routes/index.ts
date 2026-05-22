@@ -12,10 +12,17 @@ import formateursRouter from "./formateurs";
 import sallesRouter from "./salles";
 import iaRouter from "./ia";
 import etablissementsRouter from "./etablissements";
+import { tenantGuard } from "../middlewares/tenantGuard";
 
 const router: IRouter = Router();
 
+// 🔓 Public Discovery Routes (No x-etab-id required)
 router.use(healthRouter);
+router.use(etablissementsRouter);
+
+// 🛡️ Protected Operational Routes (x-etab-id REQUIRED)
+router.use(tenantGuard);
+
 router.use(dashboardRouter);
 router.use(groupesRouter);
 router.use(stagiairesRouter);
@@ -27,6 +34,5 @@ router.use(importRouter);
 router.use(formateursRouter);
 router.use(sallesRouter);
 router.use(iaRouter);
-router.use(etablissementsRouter);
 
 export default router;
