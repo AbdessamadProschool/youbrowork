@@ -13,11 +13,8 @@ RUN pnpm install --no-frozen-lockfile
 
 # ── 2. Build everything ──
 FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/lib/*/node_modules ./tmpnm/ 
 COPY . .
-# Re-copy node_modules from deps for all workspaces
-RUN cp -r /app/node_modules ./node_modules 2>/dev/null || true
+RUN pnpm install --no-frozen-lockfile
 # Build libs
 RUN pnpm --filter @workspace/db run build 2>/dev/null || true
 RUN pnpm --filter @workspace/api-zod run build 2>/dev/null || true
